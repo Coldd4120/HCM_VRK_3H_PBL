@@ -1,9 +1,8 @@
-#include "pbl_core.h"
-
-extern const PblPort pbl_board_port;
+#include "pbl_board.h"
 
 void pbl_entry(void)
 {
+    pbl_board_init();
     (void)pbl_run(&pbl_board_port);
     for (;;) {
         __asm volatile ("wfi");

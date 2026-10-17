@@ -1,19 +1,46 @@
 cmake_minimum_required(VERSION 3.20)
 project(HCM_VRK_3H_PBL C ASM)
 option(PBL_PRODUCTION "Require a bound production board port" OFF)
+set(PBL_BOARD "unbound" CACHE STRING "Board binding: unbound (fail-closed) or s32k338")
+set_property(CACHE PBL_BOARD PROPERTY STRINGS unbound s32k338)
+# NXP RTD device headers (S32K358_*.h, used for S32K338). Referenced in place,
+# never copied into this repository (NXP proprietary).
+set(PBL_RTD_HEADER_DIR
+  "D:/NXP/S32DS.3.6.7/S32DS/software/PlatformSDK_S32K3/RTD/BaseNXP_TS_T40D34M60I0R0/header"
+  CACHE PATH "RTD BaseNXP header directory")
 
 if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "arm|ARM|cortex")
   message(FATAL_ERROR "Configure with -DCMAKE_TOOLCHAIN_FILE=cmake/arm-gcc.cmake")
 endif()
 
-add_executable(pbl.elf
+set(PBL_SOURCES
   startup/pbl_startup.S
   src/pbl_main.c
   src/pbl_core.c
-  src/pbl_board_unbound.c
+  src/pbl_uds.c
+  src/pbl_flash_policy.c
   src/pbl_mem.c
 )
+if(PBL_BOARD STREQUAL "unbound")
+  list(APPEND PBL_SOURCES src/pbl_board_unbound.c)
+elseif(PBL_BOARD STREQUAL "s32k338")
+  if(NOT EXISTS "${PBL_RTD_HEADER_DIR}/S32K358_SIUL2.h")
+    message(FATAL_ERROR "PBL_BOARD=s32k338 needs PBL_RTD_HEADER_DIR with the RTD S32K358 headers")
+  endif()
+  list(APPEND PBL_SOURCES
+    src/board/s32k338/pbl_board_s32k338.c
+    src/board/s32k338/pbl_hw_s32k338.c
+    src/board/s32k338/pbl_c40.c)
+else()
+  message(FATAL_ERROR "Unknown PBL_BOARD '${PBL_BOARD}'")
+endif()
+
+add_executable(pbl.elf ${PBL_SOURCES})
 target_include_directories(pbl.elf PRIVATE include)
+if(PBL_BOARD STREQUAL "s32k338")
+  target_include_directories(pbl.elf PRIVATE src/board/s32k338)
+  target_include_directories(pbl.elf SYSTEM PRIVATE "${PBL_RTD_HEADER_DIR}")
+endif()
 if(PBL_PRODUCTION)
   target_compile_definitions(pbl.elf PRIVATE PBL_PRODUCTION=1)
 endif()
@@ -23,11 +50,16 @@ target_compile_options(pbl.elf PRIVATE
   -ffreestanding -fno-builtin -fdata-sections -ffunction-sections
   -Wall -Wextra -Werror -Os
 )
+# Generated layout (linker/gen/pbl_layout.ld) is INCLUDEd relative to -L.
 target_link_options(pbl.elf PRIVATE
   -mcpu=cortex-m7 -mthumb -mfloat-abi=soft
-  -nostdlib -T${CMAKE_CURRENT_SOURCE_DIR}/linker/pbl_s32k338.ld
+  -nostdlib -L${CMAKE_CURRENT_SOURCE_DIR}/linker
+  -T${CMAKE_CURRENT_SOURCE_DIR}/linker/pbl_s32k338.ld
   -Wl,--gc-sections,-Map=${CMAKE_CURRENT_BINARY_DIR}/pbl.map
 )
+set_property(TARGET pbl.elf APPEND PROPERTY LINK_DEPENDS
+  ${CMAKE_CURRENT_SOURCE_DIR}/linker/pbl_s32k338.ld
+  ${CMAKE_CURRENT_SOURCE_DIR}/linker/gen/pbl_layout.ld)
 target_link_libraries(pbl.elf PRIVATE gcc)
 add_custom_command(TARGET pbl.elf POST_BUILD
   COMMAND ${CMAKE_OBJCOPY} -O ihex $<TARGET_FILE:pbl.elf> ${CMAKE_CURRENT_BINARY_DIR}/pbl.hex

@@ -1,4 +1,4 @@
-#include "pbl_core.h"
+#include "pbl_board.h"
 
 /* Deliberately fail closed until HSE bank/SMR, D-Flash journal, CAN recovery,
  * flash driver, and watchdog ports are implemented and validated. A production
@@ -31,5 +31,10 @@ const PblPort pbl_board_port = {
     .activate_passive = 0,
     .jump_c0 = 0,
     .reset = 0,
-    .recovery = stay_safe
+    .recovery = stay_safe,
+    .read_u32 = 0
 };
+
+void pbl_board_init(void)
+{
+}
