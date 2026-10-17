@@ -175,3 +175,76 @@ void pbl_board_init(void)
     pbl_hw_mpu_default();
     pbl_hw_swt_start();
 }
+
+#ifdef PBL_TXN_BACKEND
+#include "txn_store.h"
+#include "txn_pbl.h"
+
+/* LH-R1-002: board binding of the TxnRecordV1 journal + image authenticator.
+ * All of it is gated by PBL_TXN_BACKEND and fails closed: with the hardware
+ * parameters below unconfirmed, txn_store_load / pbl_board_txn_auth return an
+ * error and pbl_run_txn ends in recovery (never starts C0). The production
+ * audit still blocks via the PBL_PRODUCTION #error above.
+ *
+ * Bank identification: board_physical_bank() (above) already reads the A/B
+ * block from HSE, gated by PBL_HSE_BANK_FROM_FW_PARTITION_VERIFIED (M09).
+ *
+ * Download path: the UDS programming sequence (0x34/0x36/0x37) writes through
+ * pbl_flash_policy (erase/program whitelist) + pbl_c40; it stays disabled in
+ * pbl_uds.c and fails closed until the C40 domain ID (M10) and the measured
+ * D-Flash/P-Flash program units are confirmed. TODO(å¾ç¡®è®¤). */
+#if defined(PBL_TXN_DFLASH_UNIT0_BASE) && defined(PBL_TXN_DFLASH_UNIT1_BASE) && \
+    defined(PBL_TXN_DFLASH_SLOTS)
+/* Real media: D-Flash is memory-mapped for reads; writes/erase go via C40.
+ * TODO(å¾ç¡®è®¤ Q07): the unit bases/slot count come from layout dflash.txn_units
+ * (null today) and must be measured before this branch is enabled. */
+static const uint32_t txn_unit_base[TXN_UNIT_COUNT] = {
+    PBL_TXN_DFLASH_UNIT0_BASE, PBL_TXN_DFLASH_UNIT1_BASE };
+static int board_txn_read(void *ctx, uint32_t unit, uint32_t slot, uint8_t out[TXN_RECORD_SIZE]) {
+    const volatile uint8_t *src; uint32_t i; (void)ctx;
+    if (unit >= TXN_UNIT_COUNT) { return -1; }
+    src = (const volatile uint8_t *)(uintptr_t)(txn_unit_base[unit] + slot * TXN_RECORD_SIZE);
+    for (i = 0u; i < TXN_RECORD_SIZE; ++i) { out[i] = src[i]; }
+    return 0;
+}
+static int board_txn_program(void *ctx, uint32_t unit, uint32_t slot, uint32_t off,
+                             const uint8_t *src, uint32_t len) {
+    uint32_t addr; (void)ctx;
+    if (unit >= TXN_UNIT_COUNT) { return -1; }
+    addr = txn_unit_base[unit] + slot * TXN_RECORD_SIZE + off;
+    return pbl_c40_program(addr, (const uint32_t *)(const void *)src, len) ? 0 : -1;
+}
+static int board_txn_erase(void *ctx, uint32_t unit) {
+    (void)ctx;
+    if (unit >= TXN_UNIT_COUNT) { return -1; }
+    return pbl_c40_erase_sector(txn_unit_base[unit]) ? 0 : -1;
+}
+static const TxnMedia board_txn_media_obj = {
+    board_txn_read, board_txn_program, board_txn_erase, NULL,
+    PBL_TXN_DFLASH_SLOTS, TXN_UNIT_COUNT };
+#else
+/* Fail-closed media: no verified D-Flash txn units yet (Q07 / å¾ç¡®è®¤). */
+static int board_txn_read(void *ctx, uint32_t unit, uint32_t slot, uint8_t out[TXN_RECORD_SIZE]) {
+    (void)ctx; (void)unit; (void)slot; (void)out; return -1;
+}
+static int board_txn_program(void *ctx, uint32_t unit, uint32_t slot, uint32_t off,
+                             const uint8_t *src, uint32_t len) {
+    (void)ctx; (void)unit; (void)slot; (void)off; (void)src; (void)len; return -1;
+}
+static int board_txn_erase(void *ctx, uint32_t unit) { (void)ctx; (void)unit; return -1; }
+static const TxnMedia board_txn_media_obj = {
+    board_txn_read, board_txn_program, board_txn_erase, NULL,
+    TXN_SLOTS_PER_UNIT, TXN_UNIT_COUNT };
+#endif
+
+const TxnMedia *pbl_board_txn_media(void) { return &board_txn_media_obj; }
+
+int pbl_board_txn_auth(void *ctx, const uint8_t digest[TXN_DIGEST_LEN]) {
+    (void)ctx; (void)digest;
+    /* LH-R1-002: image verification of the active package by HSE SMR over the
+     * TxnRecordV1 digest. The HSE SMR verify service format is not confirmed for
+     * this project (Q07 / å¾ç¡®è®¤); until then authentication fails closed and the
+     * PBL ends in recovery rather than trusting an unverified image. */
+    return 0;
+}
+#endif /* PBL_TXN_BACKEND */

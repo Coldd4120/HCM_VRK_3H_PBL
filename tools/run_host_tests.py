@@ -36,6 +36,11 @@ SUITES = {
                 "tests/test_txn_pbl.c"),
     # Q08/LH-R1-005 HSE MU channel liveness latch (shared with the main repo).
     "hse_channel": (["src/hal/vrk_hse_channel.c"], "tests/test_vrk_hse_channel.c"),
+    # LH-R1-002/003 TxnRecordV1 boot path (pbl_run_txn); built with the opt-in
+    # switch so the default release build stays byte-identical.
+    "txn_backend": (["src/pbl_core.c", "src/txn/txn_record.c", "src/txn/txn_store.c",
+                     "src/txn/txn_pbl.c"], "tests/test_pbl_txn_backend.c",
+                    ["-DPBL_TXN_BACKEND"]),
 }
 
 # (suite, file, old, new): each must make the suite fail.
@@ -101,6 +106,10 @@ MUTANTS = {
     "txn_pbl trial-limit guard removed": (
         "txn_pbl", "src/txn/txn_pbl.c",
         "if ((cur->attempts >= cur->max_attempts) ||", "if ((0) ||"),
+    "pbl_run_txn skips the vector gate": (
+        "txn_backend", "src/pbl_core.c",
+        "    if (!trusted_vector(p, pkg, &vector)) {\n        return recover(p);\n    }\n",
+        "    (void)trusted_vector(p, pkg, &vector);\n"),
 }
 
 
@@ -143,8 +152,10 @@ def compiler(spec: str | None) -> list[str]:
 
 
 def build_and_run(cc: list[str], root: Path, suite: str, exe: Path):
-    sources, test = SUITES[suite]
-    cmd = cc + CFLAGS + ["-I", str(root / "include")]
+    spec = SUITES[suite]
+    sources, test = spec[0], spec[1]
+    extra = list(spec[2]) if len(spec) > 2 else []
+    cmd = cc + CFLAGS + extra + ["-I", str(root / "include")]
     cmd += [str(root / s) for s in sources] + [str(ROOT / test), "-o", str(exe)]
     build = subprocess.run(cmd, capture_output=True, text=True)
     if build.returncode != 0:

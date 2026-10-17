@@ -3,6 +3,9 @@ project(HCM_VRK_3H_PBL C ASM)
 option(PBL_PRODUCTION "Require a bound production board port" OFF)
 set(PBL_BOARD "unbound" CACHE STRING "Board binding: unbound (fail-closed) or s32k338")
 set_property(CACHE PBL_BOARD PROPERTY STRINGS unbound s32k338)
+# LH-R1-002/003: opt-in TxnRecordV1 boot path. OFF keeps the release image
+# byte-identical (neither the define nor the txn sources are added).
+option(PBL_TXN_BACKEND "Use the TxnRecordV1 boot-decision path (LH-R1-002/003)" OFF)
 # NXP RTD device headers (S32K358_*.h, used for S32K338). Referenced in place,
 # never copied into this repository (NXP proprietary).
 set(PBL_RTD_HEADER_DIR
@@ -36,6 +39,13 @@ else()
   message(FATAL_ERROR "Unknown PBL_BOARD '${PBL_BOARD}'")
 endif()
 
+if(PBL_TXN_BACKEND)
+  list(APPEND PBL_SOURCES
+    src/txn/txn_record.c
+    src/txn/txn_store.c
+    src/txn/txn_pbl.c)
+endif()
+
 add_executable(pbl.elf ${PBL_SOURCES})
 target_include_directories(pbl.elf PRIVATE include)
 if(PBL_BOARD STREQUAL "s32k338")
@@ -44,6 +54,9 @@ if(PBL_BOARD STREQUAL "s32k338")
 endif()
 if(PBL_PRODUCTION)
   target_compile_definitions(pbl.elf PRIVATE PBL_PRODUCTION=1)
+endif()
+if(PBL_TXN_BACKEND)
+  target_compile_definitions(pbl.elf PRIVATE PBL_TXN_BACKEND=1)
 endif()
 target_compile_features(pbl.elf PRIVATE c_std_11)
 target_compile_options(pbl.elf PRIVATE

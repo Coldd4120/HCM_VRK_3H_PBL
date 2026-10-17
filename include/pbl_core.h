@@ -85,4 +85,16 @@ bool pbl_select_record(const PblRecord *a, const PblRecord *b,
 bool pbl_c0_vector_ok(const PblPort *port, uint32_t vector);
 PblResult pbl_run(const PblPort *port);
 
+#ifdef PBL_TXN_BACKEND
+#include "txn_store.h"
+#include "txn_pbl.h"
+/* LH-R1-003: optional TxnRecordV1 boot-decision path (design Sec.15.6), chosen
+ * at compile time by PBL_TXN_BACKEND. The default build never defines it, so the
+ * release image is byte-identical. The journal media and the digest authenticator
+ * are supplied by the board back end (LH-R1-002); both fail closed until the
+ * hardware parameters (D-Flash units, HSE SMR verify) are confirmed. */
+PblResult pbl_run_txn(const PblPort *p, const TxnMedia *media,
+                      int (*auth)(void *ctx, const uint8_t digest[TXN_DIGEST_LEN]));
+#endif
+
 #endif

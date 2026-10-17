@@ -222,3 +222,72 @@ PblResult pbl_run(const PblPort *p)
         return recover(p);
     }
 }
+
+#ifdef PBL_TXN_BACKEND
+#include "txn_store.h"
+#include "txn_pbl.h"
+
+/* LH-R1-002/003: TxnRecordV1 boot decision wired over the board journal media
+ * and the HSE digest authenticator. Pure glue: the decision table lives in
+ * txn_pbl_run(); authentication and the final vector check reuse the existing
+ * board port (verify_active_package + pbl_c0_vector_ok). */
+typedef struct {
+    const PblPort *port;
+    const TxnMedia *media;
+    int (*auth)(void *ctx, const uint8_t digest[TXN_DIGEST_LEN]);
+} PblTxnCtx;
+
+static int pbl_txn_auth_cb(void *ctx, const uint8_t digest[TXN_DIGEST_LEN])
+{
+    const PblTxnCtx *c = (const PblTxnCtx *)ctx;
+    return (c->auth != NULL) ? c->auth(c->port->ctx, digest) : 0;
+}
+
+static int pbl_txn_commit_cb(void *ctx, const TxnRecordV1 *next)
+{
+    const PblTxnCtx *c = (const PblTxnCtx *)ctx;
+    return (txn_store_append(c->media, next) == TXN_APPEND_OK) ? 1 : 0;
+}
+
+PblResult pbl_run_txn(const PblPort *p, const TxnMedia *media,
+                      int (*auth)(void *ctx, const uint8_t digest[TXN_DIGEST_LEN]))
+{
+    PblTxnCtx cctx;
+    TxnLocation loc;
+    TxnPblPorts tp;
+    TxnPblOutcome outcome;
+    uint32_t bank, pkg = 0u, vector = 0u;
+    if (p == NULL || media == NULL || p->physical_bank == NULL) {
+        return PBL_RESULT_RECOVERY;
+    }
+    if (!p->physical_bank(p->ctx, &bank) || bank > 1u) {
+        return recover(p);
+    }
+    if (txn_store_load(media, &loc) != TXN_LOAD_OK || loc.valid == 0) {
+        return recover(p);
+    }
+    cctx.port = p; cctx.media = media; cctx.auth = auth;
+    tp.auth = pbl_txn_auth_cb;
+    tp.commit = pbl_txn_commit_cb;
+    tp.ctx = &cctx;
+    outcome = txn_pbl_run(&loc.record, (uint8_t)bank, &tp);
+    switch (outcome) {
+    case TXN_PBL_JUMP_CONFIRMED:
+        pkg = loc.record.confirmed_package_id;
+        break;
+    case TXN_PBL_JUMP_TARGET:
+        pkg = loc.record.target_package_id;
+        break;
+    case TXN_PBL_ACTIVATE_RESET:
+        return swap_and_reset(p);
+    case TXN_PBL_RECOVERY:
+    default:
+        return recover(p);
+    }
+    if (!trusted_vector(p, pkg, &vector)) {
+        return recover(p);
+    }
+    p->jump_c0(p->ctx, vector);
+    return PBL_RESULT_JUMP;
+}
+#endif /* PBL_TXN_BACKEND */
