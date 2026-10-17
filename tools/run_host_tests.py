@@ -26,6 +26,10 @@ CFLAGS = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-pedantic", "-O2"]
 SUITES = {
     "core": (["src/pbl_core.c"], "tests/test_pbl_core.c"),
     "uds": (["src/pbl_uds.c", "src/pbl_flash_policy.c"], "tests/test_pbl_uds.c"),
+    # Q07/Q13 shared transaction record, byte-identical to the main repo
+    # (common/boot/txn). Compiled here to prove it builds in the PBL context.
+    "txn_record": (["src/txn/txn_record.c"], "tests/test_txn_record.c"),
+    "txn_store": (["src/txn/txn_record.c", "src/txn/txn_store.c"], "tests/test_txn_store.c"),
 }
 
 # (suite, file, old, new): each must make the suite fail.
@@ -85,7 +89,33 @@ MUTANTS = {
         "    if (!functional && false && (code == PBL_UDS_NRC_SNS"),
     "ISO-TP accepts DLC shorter than PCI": (
         "uds", "src/pbl_uds.c", " || n + 1u > dlc) {", ") {"),
+    "txn sequence+1 check removed": (
+        "txn_record", "src/txn/txn_record.c",
+        "if (next->sequence != (uint32_t)(cur->sequence + 1u)) {", "if (0) {"),
 }
+
+
+
+def txn_drift_check() -> int:
+    """The PBL copy of the shared transaction record must stay byte-identical to
+    the main repo (common/boot/txn). Skipped when the main repo is not alongside."""
+    import hashlib
+    main = Path(os.environ.get("VRK_MAIN_ROOT", ROOT.parent / "HCM_VRK_3H"))
+    pairs = [
+        (ROOT / "include/txn_record.h", main / "common/boot/txn/txn_record.h"),
+        (ROOT / "include/txn_store.h",  main / "common/boot/txn/txn_store.h"),
+        (ROOT / "src/txn/txn_record.c", main / "common/boot/txn/txn_record.c"),
+        (ROOT / "src/txn/txn_store.c",  main / "common/boot/txn/txn_store.c"),
+    ]
+    if not all(m.exists() for _, m in pairs):
+        print("SKIP txn drift check (main repo not found)")
+        return 0
+    for pbl, m in pairs:
+        if hashlib.sha256(pbl.read_bytes()).digest() != hashlib.sha256(m.read_bytes()).digest():
+            print(f"FAIL txn drift: {pbl.name} differs from main repo")
+            return 1
+    print("PASS txn drift: PBL copy byte-identical to main repo")
+    return 0
 
 
 def compiler(spec: str | None) -> list[str]:
@@ -114,6 +144,8 @@ def main() -> int:
     parser.add_argument("--cc", help='host compiler command, default: Zig "cc"')
     args = parser.parse_args()
     cc = compiler(args.cc)
+    if txn_drift_check() != 0:
+        return 1
     tmp = Path(tempfile.mkdtemp(prefix="pbl_host_"))
     try:
         for suite in SUITES:
