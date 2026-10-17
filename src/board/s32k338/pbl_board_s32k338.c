@@ -25,7 +25,21 @@
 #error "PBL_PRODUCTION: s32k338 port still has fail-closed TODOs (bank, record, verify, CAN clock)"
 #endif
 
+/* LH bench bring-up (台架首板): PBL_BENCH_BRINGUP lets the PBL boot the
+ * primary C0 directly on a freshly flashed chip that has no FOTA journal and
+ * no HSE bank/SMR provisioning. It never does AB-swap, never touches HSE, and
+ * the structural C0 vector gate (pbl_c0_vector_ok) still runs before the jump.
+ * OFF by default so the release image stays byte-identical; mutually exclusive
+ * with PBL_PRODUCTION; traceable via the PBL_VERSION 'B' marker. */
+#ifdef PBL_BENCH_BRINGUP
+#ifdef PBL_PRODUCTION
+#error "PBL_BENCH_BRINGUP must never be combined with PBL_PRODUCTION"
+#endif
+#pragma message("PBL_BENCH_BRINGUP active: direct unverified C0 boot, bench bring-up only, NOT for production")
+#define PBL_VERSION 0x0003B000u   /* bench bring-up, 0xMMmmpppp ('B' marker) */
+#else
 #define PBL_VERSION 0x00030000u   /* stage 3 port, 0xMMmmpppp */
+#endif
 
 enum {
     PBL_REASON_NONE = 0u,
@@ -38,7 +52,12 @@ static uint8_t recovery_reason = PBL_REASON_BOOT_FAILED;
 static bool board_physical_bank(void *ctx, uint32_t *bank)
 {
     (void)ctx;
-#ifdef PBL_HSE_BANK_FROM_FW_PARTITION_VERIFIED
+#if defined(PBL_BENCH_BRINGUP)
+    /* Bench: no HSE bank source; bring-up always runs the primary half. */
+    if (bank == NULL) { return false; }
+    *bank = 0u;
+    return true;
+#elif defined(PBL_HSE_BANK_FROM_FW_PARTITION_VERIFIED)
     uint8_t partition = 0u;
     if (!pbl_hw_hse_get_attr(PBL_HSE_FW_PARTITION_ATTR_ID, &partition, 1u)) {
         return false;
@@ -54,8 +73,31 @@ static bool board_physical_bank(void *ctx, uint32_t *bank)
 
 static bool board_read_record(void *ctx, uint32_t copy, PblRecord *record)
 {
-    (void)ctx; (void)copy; (void)record;
+    (void)ctx;
+#if defined(PBL_BENCH_BRINGUP)
+    /* Bench: synthesize a CONFIRMED record for the primary half so pbl_run()
+     * takes the normal CONFIRMED -> boot() path (vector gate still runs). No
+     * D-Flash journal is read or written. */
+    if (record == NULL || copy != 0u) { return false; }
+    {
+        PblRecord r = {0};
+        r.magic = PBL_RECORD_MAGIC;
+        r.version = PBL_RECORD_VERSION;
+        r.sequence = 1u;
+        r.state = (uint32_t)PBL_STATE_CONFIRMED;
+        r.confirmed_bank = 0u;
+        r.target_bank = 0u;
+        r.trial_boots = 0u;
+        r.confirmed_package_id = 0u;
+        r.target_package_id = 0u;
+        pbl_record_seal(&r);
+        *record = r;
+    }
+    return true;
+#else
+    (void)copy; (void)record;
     return false;   /* TODO(Q07): D-Flash txn units (layout dflash.txn_units) */
+#endif
 }
 
 static bool board_append_record(void *ctx, const PblRecord *record)
@@ -66,8 +108,18 @@ static bool board_append_record(void *ctx, const PblRecord *record)
 
 static bool board_verify(void *ctx, uint32_t package, uint32_t *c0_vector)
 {
-    (void)ctx; (void)package; (void)c0_vector;
+    (void)ctx; (void)package;
+#if defined(PBL_BENCH_BRINGUP)
+    /* Bench: HSE SMR image verification is intentionally skipped (HSE is not
+     * touched on first bring-up). The structural vector gate pbl_c0_vector_ok()
+     * still validates the real C0 vector table before the jump. */
+    if (c0_vector == NULL) { return false; }
+    *c0_vector = PBL_LAYOUT_C0_BASE;
+    return true;
+#else
+    (void)c0_vector;
     return false;   /* TODO(Q07): descriptor + HSE SMR verify of the active half */
+#endif
 }
 
 static bool board_activate(void *ctx)

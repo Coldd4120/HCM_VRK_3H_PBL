@@ -6,6 +6,8 @@ set_property(CACHE PBL_BOARD PROPERTY STRINGS unbound s32k338)
 # LH-R1-002/003: opt-in TxnRecordV1 boot path. OFF keeps the release image
 # byte-identical (neither the define nor the txn sources are added).
 option(PBL_TXN_BACKEND "Use the TxnRecordV1 boot-decision path (LH-R1-002/003)" OFF)
+# Bench bring-up: direct primary-C0 boot, no HSE/journal. NOT for production.
+option(PBL_BENCH_BRINGUP "Bench bring-up: direct primary-C0 boot, no HSE/journal (NOT for production)" OFF)
 # NXP RTD device headers (S32K358_*.h, used for S32K338). Referenced in place,
 # never copied into this repository (NXP proprietary).
 set(PBL_RTD_HEADER_DIR
@@ -57,6 +59,9 @@ if(PBL_PRODUCTION)
 endif()
 if(PBL_TXN_BACKEND)
   target_compile_definitions(pbl.elf PRIVATE PBL_TXN_BACKEND=1)
+endif()
+if(PBL_BENCH_BRINGUP)
+  target_compile_definitions(pbl.elf PRIVATE PBL_BENCH_BRINGUP=1)
 endif()
 target_compile_features(pbl.elf PRIVATE c_std_11)
 target_compile_options(pbl.elf PRIVATE
