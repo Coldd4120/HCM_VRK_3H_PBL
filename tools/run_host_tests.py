@@ -30,6 +30,10 @@ SUITES = {
     # (common/boot/txn). Compiled here to prove it builds in the PBL context.
     "txn_record": (["src/txn/txn_record.c"], "tests/test_txn_record.c"),
     "txn_store": (["src/txn/txn_record.c", "src/txn/txn_store.c"], "tests/test_txn_store.c"),
+    # Q16 PBL boot/switch state machine over the shared journal (byte-identical
+    # to the main repo common/boot/txn/txn_pbl).
+    "txn_pbl": (["src/txn/txn_record.c", "src/txn/txn_store.c", "src/txn/txn_pbl.c"],
+                "tests/test_txn_pbl.c"),
 }
 
 # (suite, file, old, new): each must make the suite fail.
@@ -92,6 +96,9 @@ MUTANTS = {
     "txn sequence+1 check removed": (
         "txn_record", "src/txn/txn_record.c",
         "if (next->sequence != (uint32_t)(cur->sequence + 1u)) {", "if (0) {"),
+    "txn_pbl trial-limit guard removed": (
+        "txn_pbl", "src/txn/txn_pbl.c",
+        "if ((cur->attempts >= cur->max_attempts) ||", "if ((0) ||"),
 }
 
 
@@ -106,6 +113,8 @@ def txn_drift_check() -> int:
         (ROOT / "include/txn_store.h",  main / "common/boot/txn/txn_store.h"),
         (ROOT / "src/txn/txn_record.c", main / "common/boot/txn/txn_record.c"),
         (ROOT / "src/txn/txn_store.c",  main / "common/boot/txn/txn_store.c"),
+        (ROOT / "include/txn_pbl.h", main / "common/boot/txn/txn_pbl.h"),
+        (ROOT / "src/txn/txn_pbl.c", main / "common/boot/txn/txn_pbl.c"),
     ]
     if not all(m.exists() for _, m in pairs):
         print("SKIP txn drift check (main repo not found)")
