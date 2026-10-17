@@ -27,7 +27,7 @@ static void mk(TxnRecordV1*r,uint8_t st,uint8_t wr,uint32_t seq,uint8_t cb,uint8
     r->magic=TXN_MAGIC; r->schema=TXN_SCHEMA_V1; r->length=TXN_LENGTH_V1;
     r->sequence=seq; r->txn_generation=1; r->state=st; r->writer=wr;
     r->confirmed_bank=cb; r->target_bank=tb; r->attempts=att; r->max_attempts=maxa;
-    r->confirmed_package_id=1; r->target_package_id=(ct==tt)?1:2; r->layout_id=0x1234;
+    r->confirmed_package_id=1; r->target_package_id=(ct==tt)?1:2; r->layout_id=PBL_LAYOUT_ID;
     r->confirmed_security_version=1; r->target_security_version=(ct==tt)?1:2;
     dig(r->confirmed_digest,ct); dig(r->target_digest,tt);
 }
@@ -107,6 +107,19 @@ int main(void){
     { Sim s; sim_init(&s); TxnMedia m=MK(&s); g_m=&m;
       PblPort p=PORT(); reset_obs(); g_bank=0; allow_clr();
       CHECK(pbl_run_txn(&p,&m,board_auth)==PBL_RESULT_RECOVERY,"blank->recovery"); }
+
+    /* 8) LH-R2-007: a committed record built for a DIFFERENT layout must never
+     *    drive a boot decision; the PBL rejects it and stays in recovery, with
+     *    no jump/activate/reset and no journal write. */
+    { Sim s; sim_init(&s); TxnMedia m=MK(&s); g_m=&m; TxnRecordV1 r; mk(&r,TXN_ST_CONFIRMED,TXN_WR_FACTORY,0,0,0,A,A,0,3);
+      r.layout_id=0xDEADBEEFu; /* valid CRC/commit, wrong layout */
+      CHECK(txn_store_append(&m,&r)==TXN_APPEND_OK,"seed wrong-layout");
+      TxnLocation before; txn_store_load(&m,&before);
+      PblPort p=PORT(); reset_obs(); g_bank=0; allow_clr(); allow(A);
+      CHECK(pbl_run_txn(&p,&m,board_auth)==PBL_RESULT_RECOVERY,"wrong layout_id->recovery");
+      CHECK(g_recovery&&!g_jumped&&!g_activated&&!g_reset,"no boot/activate on wrong layout");
+      TxnLocation after; txn_store_load(&m,&after);
+      CHECK(before.record.sequence==after.record.sequence,"no journal write on wrong layout"); }
 
     if(failures){ printf("PBL TXN BACKEND TESTS: %d FAIL\n",failures); return 1; }
     puts("PBL TXN BACKEND TESTS: ALL PASS"); return 0;

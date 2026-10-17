@@ -266,6 +266,13 @@ PblResult pbl_run_txn(const PblPort *p, const TxnMedia *media,
     if (txn_store_load(media, &loc) != TXN_LOAD_OK || loc.valid == 0) {
         return recover(p);
     }
+    /* LH-R2-007: a persisted record built for a different layout must never
+     * drive a boot/swap/activation decision (detailed design 15.2). Reject it
+     * and stay in recovery before any authentication, commit or jump; never
+     * infer the current layout from the record itself. */
+    if (loc.record.layout_id != PBL_LAYOUT_ID) {
+        return recover(p);
+    }
     cctx.port = p; cctx.media = media; cctx.auth = auth;
     tp.auth = pbl_txn_auth_cb;
     tp.commit = pbl_txn_commit_cb;
