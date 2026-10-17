@@ -1,5 +1,6 @@
 # Build outputs (CMake/Ninja, host tests)
 build/
+build_*/
 *.elf
 *.bin
 *.hex

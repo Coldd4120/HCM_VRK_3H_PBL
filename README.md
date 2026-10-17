@@ -8,7 +8,7 @@
 
 ## 已实现
 
-- 启动（`startup/pbl_startup.S`）：SBAF IVT（CM7_0 起始地址 = 生成的 PBL 向量地址），16+249 项完整向量表（每项指向 Default_Handler），设置 MSP/VTOR、使能 TCM，对 PBL DTCM 和 PBL SRAM 两个窗口做 64 位写 ECC 初始化，拷贝 .data/.ramfunc。
+- 启动（`startup/pbl_startup.S`）：SBAF IVT（CM7_0 起始地址 = 生成的 PBL 向量地址），16+233=249 项完整向量表（NUMBER_OF_INT_VECTORS）（每项指向 Default_Handler），设置 MSP/VTOR、使能 TCM，对 PBL DTCM 和 PBL SRAM 两个窗口做 64 位写 ECC 初始化，拷贝 .data/.ramfunc。
 - RAM：PBL 只使用 `pbl_sram` 0x20420000–0x2042FFFF（C0 非缓存 SRAM，C0 每次复位都会重新初始化，且位于 `__STANDBY_RAM_LIMIT_END` 0x2040FFFF 之外）和 `pbl_dtcm` 0x20000000–0x2000FFFF（栈），不碰 C0 待机保持区 0x20400000–0x2040FFFF。
 - 状态机：CONFIRMED、ACTIVATING、TRIAL、ROLLING_BACK。ACTIVATING 落在目标银行时只写一次 TRIAL(a=1)；试运行上限取自 layout（候选值 3）。trusted_vector 只接受 C0 窗口内、按 vector_align 对齐的向量，并校验 MSP 和 Thumb 复位入口。
 - 恢复 UDS 子集（`src/pbl_uds.c`）：0x10/0x3E/0x22/0x11；下载类服务 0x31/0x34/0x36/0x37 返回 NRC 0x22（待 Q07 描述符与认证完成）。同时提供 ISO-TP 单帧和编程地址白名单（`src/pbl_flash_policy.c`，仅允许被动半区 descriptor..C2）。

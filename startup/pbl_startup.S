@@ -24,8 +24,8 @@
 .word 0xFFFFFFFF            /* 0x28..0xFC reserved / CM7_3 unused */
 .endr
 
-/* Full Cortex-M7 vector table: 16 system entries + 249 peripheral entries
- * (NUMBER_OF_INT_VECTORS, RTD S32K358_COMMON.h). Every entry is valid, so a
+/* Full Cortex-M7 vector table: 16 system entries + 233 peripheral entries
+ * (IRQn 0..232) = NUMBER_OF_INT_VECTORS 249 (RTD S32K358_COMMON.h). Every entry is valid, so a
  * stray exception or interrupt lands in Default_Handler, never in erased
  * flash. */
 .section .isr_vector, "a", %progbits
@@ -47,7 +47,7 @@ __pbl_vectors:
 .word 0
 .word Default_Handler + 1   /* PendSV */
 .word Default_Handler + 1   /* SysTick */
-.rept 249
+.rept 233
 .word Default_Handler + 1
 .endr
 __pbl_vectors_end:
