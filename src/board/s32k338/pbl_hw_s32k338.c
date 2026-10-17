@@ -104,6 +104,53 @@ void pbl_hw_swt_service(void)
     IP_SWT_0->SR = PBL_SWT_KEY_SERVICE2;
 }
 
+/* LH-R1-006: monotonic millisecond base for the recovery session.
+ * SysTick is a 24-bit down-counter clocked from the core clock. We run it
+ * free-running (reload = 0xFFFFFF, no interrupt) and accumulate the elapsed
+ * core-clock ticks between polls, converting to milliseconds. The unsigned
+ * (last - cur) difference is wrap-safe across the 24-bit reload, and the ms
+ * counter is only read by the recovery loop (single context).
+ *
+ * TODO(å¾ç¡®è®¤ / timing): PBL_SYSTICK_HZ is the SysTick input frequency. The
+ * PBL runs on the post-reset clock tree (no PLL is brought up here), so the
+ * exact core clock is unconfirmed and must be measured/confirmed on hardware
+ * before the S3 timing is trusted. The value below is a conservative lower
+ * bound; using a frequency at or below the true one only makes the derived
+ * time advance no faster than real time, so the session can at most fall back
+ * to the default session later, never hang in a programming session. */
+#ifndef PBL_SYSTICK_HZ
+#define PBL_SYSTICK_HZ 48000000u   /* å¾ç¡®è®¤: post-reset FIRC-derived core clock */
+#endif
+#define PBL_SYSTICK_PER_MS (PBL_SYSTICK_HZ / 1000u)
+
+uint32_t pbl_hw_now_ms(void)
+{
+    static bool started = false;
+    static uint32_t last_cvr = 0u;
+    static uint32_t acc_ticks = 0u;
+    static uint32_t now_ms = 0u;
+    uint32_t cur, delta;
+    if (!started) {
+        S32_SysTick->CSRr = 0u;
+        S32_SysTick->RVR = S32_SysTick_RVR_RELOAD_MASK;   /* 0xFFFFFF */
+        S32_SysTick->CVR = 0u;                            /* clears COUNTFLAG */
+        S32_SysTick->CSRr = S32_SysTick_CSR_CLKSOURCE_MASK |
+                            S32_SysTick_CSR_ENABLE_MASK;  /* core clock, no IRQ */
+        last_cvr = S32_SysTick->CVR & S32_SysTick_CVR_CURRENT_MASK;
+        started = true;
+        return 0u;
+    }
+    cur = S32_SysTick->CVR & S32_SysTick_CVR_CURRENT_MASK;
+    delta = (last_cvr - cur) & S32_SysTick_CVR_CURRENT_MASK;   /* down-counter */
+    last_cvr = cur;
+    acc_ticks += delta;
+    while (acc_ticks >= PBL_SYSTICK_PER_MS) {
+        acc_ticks -= PBL_SYSTICK_PER_MS;
+        now_ms++;
+    }
+    return now_ms;
+}
+
 void pbl_hw_mpu_default(void)
 {
     DSB();

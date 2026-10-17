@@ -100,7 +100,8 @@ static void board_reset(void *ctx)
     pbl_hw_functional_reset();
 }
 
-static void serve_frame(PblUds *uds, uint32_t id, const uint8_t *data, uint32_t dlc)
+static void serve_frame(PblUds *uds, uint32_t id, const uint8_t *data, uint32_t dlc,
+                        uint32_t now_ms)
 {
     const uint8_t *payload = NULL;
     uint8_t rsp[8], frame[8];
@@ -117,7 +118,7 @@ static void serve_frame(PblUds *uds, uint32_t id, const uint8_t *data, uint32_t 
     if (n == 0u) {
         return;
     }
-    n = pbl_uds_process(uds, payload, n, functional, 0u, rsp, sizeof(rsp));
+    n = pbl_uds_process(uds, payload, n, functional, now_ms, rsp, sizeof(rsp));
     if (n != 0u && pbl_isotp_sf_encode(rsp, n, frame, PBL_UDS_PADDING)) {
         (void)pbl_hw_can0_send(tx, frame);
     }
@@ -133,14 +134,16 @@ static void board_recovery(void *ctx)
     (void)ctx;
     info.recovery_reason = recovery_reason;
     (void)pbl_hw_safe_outputs();
-    pbl_uds_init(&uds, &info, 0u);
+    pbl_uds_init(&uds, &info, pbl_hw_now_ms());
     can = pbl_hw_can0_start();
     for (;;) {
+        uint32_t now_ms = pbl_hw_now_ms();
         pbl_hw_swt_service();
-        /* TODO(timing): S3 timeout needs a time base (STM); none yet. */
+        /* LH-R1-006: the monotonic SysTick base drives the S3 session. */
         if (can && pbl_hw_can0_receive(&id, data, &dlc)) {
-            serve_frame(&uds, id, data, dlc);
+            serve_frame(&uds, id, data, dlc, now_ms);
         }
+        pbl_uds_tick(&uds, now_ms);
         if (uds.reset_requested) {
             pbl_hw_functional_reset();
         }

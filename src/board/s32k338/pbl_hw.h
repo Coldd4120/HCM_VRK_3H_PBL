@@ -9,6 +9,7 @@
 bool pbl_hw_safe_outputs(void);          /* HSS off, verified */
 void pbl_hw_swt_start(void);
 void pbl_hw_swt_service(void);
+uint32_t pbl_hw_now_ms(void);            /* monotonic ms, SysTick (LH-R1-006) */
 void pbl_hw_mpu_default(void);           /* MPU off = default memory map */
 bool pbl_hw_can0_start(void);            /* false while the clock is TODO */
 bool pbl_hw_can0_receive(uint32_t *id, uint8_t *data, uint32_t *dlc);

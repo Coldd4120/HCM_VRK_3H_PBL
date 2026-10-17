@@ -68,6 +68,46 @@ static int uds(void)
     return 0;
 }
 
+static int session_timing(void)
+{
+    static const PblUdsInfo info = {0x5222308Bu, 0x00030000u, 2u, 1u, 3u};
+    PblUds u;
+    uint8_t r[8];
+
+    /* TesterPresent refreshes the S3 window: a session kept alive by 0x3E must
+     * not fall back while the tester keeps talking. */
+    pbl_uds_init(&u, &info, 0u);
+    CHECK(req(&u, "\x10\x02", 2u, false, 1000u, r) == 6u && u.session == 0x02u);
+    pbl_uds_tick(&u, 1000u + PBL_UDS_S3_MS - 1u);
+    CHECK(u.session == 0x02u);
+    CHECK(req(&u, "\x3E\x00", 2u, false, 1000u + PBL_UDS_S3_MS - 1u, r) == 2u);
+    pbl_uds_tick(&u, 1000u + 2u * PBL_UDS_S3_MS - 2u);   /* <S3 since the 0x3E */
+    CHECK(u.session == 0x02u);
+    pbl_uds_tick(&u, 1000u + PBL_UDS_S3_MS - 1u + PBL_UDS_S3_MS);
+    CHECK(u.session == PBL_UDS_SESSION_DEFAULT);
+
+    /* Timer wraparound: the last request sits just below 2^32 and the tick
+     * time wraps past zero; the unsigned S3 difference must stay correct. */
+    pbl_uds_init(&u, &info, 0u);
+    CHECK(req(&u, "\x10\x02", 2u, false, 0xFFFFFF00u, r) == 6u && u.session == 0x02u);
+    pbl_uds_tick(&u, (uint32_t)(0xFFFFFF00u + PBL_UDS_S3_MS - 1u));   /* wrapped */
+    CHECK(u.session == 0x02u);
+    pbl_uds_tick(&u, (uint32_t)(0xFFFFFF00u + PBL_UDS_S3_MS));        /* wrapped */
+    CHECK(u.session == PBL_UDS_SESSION_DEFAULT);
+
+    /* A request at a wrapped timestamp refreshes correctly as well. */
+    pbl_uds_init(&u, &info, 0xFFFFFFF0u);
+    CHECK(req(&u, "\x10\x02", 2u, false, 0xFFFFFFF0u, r) == 6u);
+    CHECK(req(&u, "\x3E\x00", 2u, false, 0x00000010u, r) == 2u);     /* +32 ms */
+    pbl_uds_tick(&u, (uint32_t)(0x00000010u + PBL_UDS_S3_MS - 1u));
+    CHECK(u.session == 0x02u);
+    pbl_uds_tick(&u, (uint32_t)(0x00000010u + PBL_UDS_S3_MS));
+    CHECK(u.session == PBL_UDS_SESSION_DEFAULT);
+
+    puts("PBL recovery session timing tests: PASS");
+    return 0;
+}
+
 static int isotp(void)
 {
     const uint8_t sf[8] = {0x02u, 0x10u, 0x02u, 0xCCu, 0xCCu, 0xCCu, 0xCCu, 0xCCu};
@@ -131,5 +171,5 @@ static int policy(void)
 
 int main(void)
 {
-    return (uds() || isotp() || policy()) ? 1 : 0;
+    return (uds() || session_timing() || isotp() || policy()) ? 1 : 0;
 }
