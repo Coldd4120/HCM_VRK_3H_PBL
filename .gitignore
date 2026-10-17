@@ -1,0 +1,20 @@
+# Build outputs (CMake/Ninja, host tests)
+build/
+*.elf
+*.bin
+*.hex
+*.map
+*.o
+*.obj
+*.exe
+*.pdb
+*.ilk
+# Python caches
+__pycache__/
+*.pyc
+# Local backups / editor temp
+*.bak
+*.bak_*
+backup_*/
+*.tmp
+*~

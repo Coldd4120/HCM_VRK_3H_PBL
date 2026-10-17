@@ -1,0 +1,11 @@
+{
+  "target_derivative": "S32K338",
+  "exact_order_code": null,
+  "recovery_can_controller": "FlexCAN0",
+  "prototype_sbc": "OKX0210-Q5PG-MR1B",
+  "can_transceiver_in_current_project": "TJA1044",
+  "planned_replacement_device": "UJA1169",
+  "planned_replacement_status": "requires separate board configuration and bench validation",
+  "board_revision": null,
+  "ready_for_mcu_flash": false
+}
