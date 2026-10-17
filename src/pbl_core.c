@@ -91,12 +91,37 @@ static bool persist(const PblPort *p, PblRecord *r, PblState state)
     return p->append_record(p->ctx, r);
 }
 
+bool pbl_c0_vector_ok(const PblPort *p, uint32_t vector)
+{
+    uint32_t msp = 0u, entry = 0u;
+    /* Unsigned window arithmetic: vector >= base is checked first, so
+     * END - vector cannot wrap. */
+    if (p == NULL || p->read_u32 == NULL ||
+        vector < PBL_LAYOUT_C0_BASE || vector >= PBL_LAYOUT_C0_END ||
+        (vector & (PBL_LAYOUT_C0_VECTOR_ALIGN - 1u)) != 0u ||
+        (PBL_LAYOUT_C0_END - vector) <= PBL_C0_VECTOR_BYTES) {
+        return false;
+    }
+    if (!p->read_u32(p->ctx, vector, &msp) ||
+        !p->read_u32(p->ctx, vector + 4u, &entry)) {
+        return false;
+    }
+    if (msp <= PBL_LAYOUT_RAM_C0_MSP_WINDOW_BASE ||
+        msp > PBL_LAYOUT_RAM_C0_MSP_WINDOW_END || (msp & 7u) != 0u) {
+        return false;
+    }
+    if ((entry & 1u) == 0u) {
+        return false;
+    }
+    entry &= ~1u;
+    return entry >= (vector + PBL_C0_VECTOR_BYTES) && entry < PBL_LAYOUT_C0_END;
+}
+
 static bool trusted_vector(const PblPort *p, uint32_t package, uint32_t *vector)
 {
     return p->verify_active_package != NULL &&
            p->verify_active_package(p->ctx, package, vector) &&
-           *vector >= 0x00440000u && *vector < 0x007D4000u &&
-           (*vector & 0x1FFu) == 0u;
+           pbl_c0_vector_ok(p, *vector);
 }
 
 static PblResult boot(const PblPort *p, uint32_t package)
@@ -150,12 +175,21 @@ PblResult pbl_run(const PblPort *p)
             /* A failed or interrupted activation keeps the old package. */
             return boot(p, r.confirmed_package_id);
         }
-        if (bank != r.target_bank ||
-            !persist(p, &r, PBL_STATE_TRIAL)) {
+        if (bank != r.target_bank) {
             return recover(p);
         }
-        /* Count the first trial boot before handing off. */
-        /* fall through */
+        /* Sec.15.6: the activation boot is trial boot 1, persisted with a
+         * single TRIAL write before the hand-off. An image that does not
+         * authenticate is rolled back without a trial. */
+        if (!trusted_vector(p, r.target_package_id, &vector)) {
+            return rollback(p, &r);
+        }
+        r.trial_boots = 1u;
+        if (!persist(p, &r, PBL_STATE_TRIAL) || p->jump_c0 == NULL) {
+            return recover(p);
+        }
+        p->jump_c0(p->ctx, vector);
+        return PBL_RESULT_JUMP;
     case PBL_STATE_TRIAL:
         if (bank == r.confirmed_bank) {
             r.target_bank = bank;
