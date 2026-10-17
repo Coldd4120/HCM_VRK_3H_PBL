@@ -8,6 +8,7 @@
 #include "pbl_hw.h"
 #include "pbl_board_cfg.h"
 #include "gen/pbl_layout.h"
+#include "vrk_hse_channel.h"
 
 #include "S32K358_FLEXCAN.h"
 #include "S32K358_MC_ME.h"
@@ -285,13 +286,24 @@ typedef struct {
 static volatile PblHseDescriptor hse_desc;
 static volatile uint8_t hse_attr[16];
 
+/* One channel latch guards the shared hse_desc/hse_attr buffers (LH-R1-005):
+ * a poll timeout latches the channel unavailable so a late HSE write can never
+ * corrupt a reused buffer; only a reliable reset clears it. */
+static VrkHseChannel hse_channel = { VRK_HSE_CH_READY };
+
 static bool hse_request(uint32_t srv_id, uint32_t attr_id, uint32_t length)
 {
     const uint32_t ch = 1u << PBL_HSE_MU_CHANNEL;
     uint32_t n, i;
+    if (!vrk_hse_ch_available(&hse_channel)) {
+        return false;   /* channel latched unavailable after a prior timeout */
+    }
     if (((IP_MU_0__MUB->FSR >> 16) & PBL_HSE_STATUS_INIT_OK) == 0u ||
         (IP_MU_0__MUB->TSR & ch) == 0u || (IP_MU_0__MUB->RSR & ch) != 0u) {
         return false;
+    }
+    if (!vrk_hse_ch_begin(&hse_channel)) {
+        return false;   /* defensive: a request is already outstanding */
     }
     for (i = 0u; i < sizeof(hse_attr); ++i) {
         hse_attr[i] = 0u;
@@ -306,10 +318,12 @@ static bool hse_request(uint32_t srv_id, uint32_t attr_id, uint32_t length)
         if ((IP_MU_0__MUB->RSR & ch) != 0u) {
             uint32_t rsp = IP_MU_0__MUB->RR[PBL_HSE_MU_CHANNEL];
             DSB();
+            vrk_hse_ch_complete(&hse_channel);
             return rsp == PBL_HSE_SRV_RSP_OK;
         }
     }
-    return false;   /* TODO(HSE): cancel service on timeout */
+    vrk_hse_ch_fail(&hse_channel);   /* timeout: fail closed, forbid buffer reuse */
+    return false;
 }
 
 bool pbl_hw_hse_get_attr(uint32_t attr_id, void *out, uint32_t length)

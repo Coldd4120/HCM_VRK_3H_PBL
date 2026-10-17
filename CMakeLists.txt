@@ -28,6 +28,7 @@ elseif(PBL_BOARD STREQUAL "s32k338")
     message(FATAL_ERROR "PBL_BOARD=s32k338 needs PBL_RTD_HEADER_DIR with the RTD S32K358 headers")
   endif()
   list(APPEND PBL_SOURCES
+    src/hal/vrk_hse_channel.c
     src/board/s32k338/pbl_board_s32k338.c
     src/board/s32k338/pbl_hw_s32k338.c
     src/board/s32k338/pbl_c40.c)

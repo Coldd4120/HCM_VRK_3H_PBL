@@ -34,6 +34,8 @@ SUITES = {
     # to the main repo common/boot/txn/txn_pbl).
     "txn_pbl": (["src/txn/txn_record.c", "src/txn/txn_store.c", "src/txn/txn_pbl.c"],
                 "tests/test_txn_pbl.c"),
+    # Q08/LH-R1-005 HSE MU channel liveness latch (shared with the main repo).
+    "hse_channel": (["src/hal/vrk_hse_channel.c"], "tests/test_vrk_hse_channel.c"),
 }
 
 # (suite, file, old, new): each must make the suite fail.
@@ -115,6 +117,8 @@ def txn_drift_check() -> int:
         (ROOT / "src/txn/txn_store.c",  main / "common/boot/txn/txn_store.c"),
         (ROOT / "include/txn_pbl.h", main / "common/boot/txn/txn_pbl.h"),
         (ROOT / "src/txn/txn_pbl.c", main / "common/boot/txn/txn_pbl.c"),
+        (ROOT / "include/vrk_hse_channel.h", main / "common/boot/hal/vrk_hse_channel.h"),
+        (ROOT / "src/hal/vrk_hse_channel.c", main / "common/boot/hal/vrk_hse_channel.c"),
     ]
     if not all(m.exists() for _, m in pairs):
         print("SKIP txn drift check (main repo not found)")
