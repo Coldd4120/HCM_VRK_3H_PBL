@@ -1,34 +1,35 @@
 # HCM_VRK_3H 固定 PBL 工程
 
-状态：**工程骨架与主机状态机已完成；板级端口未绑定，生成的 HEX 不可上板或用于量产。**
+状态：**第三阶段（Q08/Q09）S32K338 板级移植代码已就绪（候选），在若干失败关闭 TODO 解除前上板只会停在恢复模式、不会启动 C0；生成的 HEX 不可上板或用于量产。**
 
-以现有三核工程为板级来源的逐项审计见 [板级接口继承与量产缺口](docs/板级接口继承与量产缺口_20261017.md)。当前板级输入在 [board_profile.json](config/board_profile.json) 中记录：S32K338、FlexCAN0、测试版 OKX0210，UJA1169 待另行适配。运行 `python tools/audit_production_readiness.py --out build/production_readiness.json` 会对不满足的量产门禁返回非零；当前 9 项静态门禁中 7 项未通过。现有 `pbl.hex` 仍是离线核心候选。
+以现有三核工程为板级来源的逐项审计见 [板级接口继承与量产缺口](docs/板级接口继承与量产缺口_20261017.md)。当前板级输入记录在 [board_profile.json](config/board_profile.json) 中：S32K338、FlexCAN0、测试版 OKX0210，UJA1169 待另行适配。运行 `python tools/audit_production_readiness.py --out build/production_readiness.json` 时，若量产门禁不满足会返回非零；当前 10 项静态门禁中 5 项未通过（见第三阶段报告）。
 
-本工程是 S32K338 的独立 C0 PBL。目标架构为 HSE AB_SWAP 整半区交换、两份字节一致的固定 PBL、SBL 与三核 APP 作为同一升级包。当前链接地址 `0x00400000`，候选保护窗口 `0x00400000–0x0043FFFF`；交换侧对应 `0x00800000–0x0083FFFF`。这些地址仍待 HSE 首装后实测及 OEM 批准。
+本工程是 S32K338 的独立 C0 PBL。目标架构为 HSE AB_SWAP 整半区交换、两份字节一致的固定 PBL、SBL 与三核 APP 作为同一升级包。**地址不在本工程手写**：Flash/RAM 窗口、向量偏移、C0 窗口与 vector_align、试运行上限均由主工程 `common/boot/layout.json`（候选 `VRK_S32K338_ABSWAP_CAND1`，`approved=false`）经 `tools/layout/gen_layout.py --pbl-root` 生成到 `include/gen/pbl_layout.h` 与 `linker/gen/pbl_layout.ld`；主工程 `tools/check_fota_layout.py` 的 R5/R9 规则检查生成文件是否最新、源码中有无字面地址。
 
 ## 已实现
 
-- C0 启动头、向量、Reset_Handler 和 256 KiB 链接预算。
-- 带 CRC、版本、序号和两个副本选择的启动记录数据结构。
-- CONFIRMED、ACTIVATING、TRIAL、ROLLING_BACK 状态机；试运行最多三次，失败时请求回退。
-- 对回调、记录、映射、镜像验证和入口地址失败关闭；主机测试覆盖正常启动、激活、回退、损坏记录和持久写失败。
-- 未绑定板级端口会拒绝启动 APP；定义 PBL_PRODUCTION 时编译直接失败。
+- 启动（`startup/pbl_startup.S`）：SBAF IVT（CM7_0 起始地址 = 生成的 PBL 向量地址），16+249 项完整向量表（每项指向 Default_Handler），设置 MSP/VTOR、使能 TCM，对 PBL DTCM 和 PBL SRAM 两个窗口做 64 位写 ECC 初始化，拷贝 .data/.ramfunc。
+- RAM：PBL 只使用 `pbl_sram` 0x20420000–0x2042FFFF（C0 非缓存 SRAM，C0 每次复位都会重新初始化，且位于 `__STANDBY_RAM_LIMIT_END` 0x2040FFFF 之外）和 `pbl_dtcm` 0x20000000–0x2000FFFF（栈），不碰 C0 待机保持区 0x20400000–0x2040FFFF。
+- 状态机：CONFIRMED、ACTIVATING、TRIAL、ROLLING_BACK。ACTIVATING 落在目标银行时只写一次 TRIAL(a=1)；试运行上限取自 layout（候选值 3）。trusted_vector 只接受 C0 窗口内、按 vector_align 对齐的向量，并校验 MSP 和 Thumb 复位入口。
+- 恢复 UDS 子集（`src/pbl_uds.c`）：0x10/0x3E/0x22/0x11；下载类服务 0x31/0x34/0x36/0x37 返回 NRC 0x22（待 Q07 描述符与认证完成）。同时提供 ISO-TP 单帧和编程地址白名单（`src/pbl_flash_policy.c`，仅允许被动半区 descriptor..C2）。
+- S32K338 板级（`-DPBL_BOARD=s32k338`，`src/board/s32k338/`）：HSS 安全输出（同 Vrk_BootForceHssOff）、SWT、MPU 默认、FlexCAN0+TJA1044 STB、C40 RAM 驱动、HSE MU 最小服务（GET_ATTR/激活被动半区）、跳转 C0（关中断、清 NVIC pending、关 SysTick/MPU、设 VTOR/MSP）。寄存器取自 S32DS 安装目录下 RTD 6.0.0 的 S32K358 头文件（经 `PBL_RTD_HEADER_DIR` 引用，不拷贝进仓库）。
+- `PBL_BOARD=unbound`（默认）仍是失败关闭的空端口；`PBL_PRODUCTION` 在布局未批准或板级仍有 TODO 时编译失败。
 
-## 尚需实现和验证
+## 失败关闭 TODO（解除前不启动 C0）
 
-1. 根据选定 HSE 2.55.0 的 S32K338 安装实例，确认真实交换粒度、映射、HSE 预留区、IVT 和两份 PBL 保护；更新链接及入口常量。
-2. 用实际驱动实现 include/pbl_core.h 中的 PblPort：读取 HSE 当前物理银行、持久记录双区读/追加、完整 SBL+C0+C1+C2 包认证、HSE 激活/回退、C0 交权、受控复位和恢复入口。
-3. 设计单一持久记录的首装初始化、掉电写入语义、跨交换地址稳定性与 APP 确认接口。CRC 只检出记录损坏，不能代替认证。
-4. 完成安全 I/O、看门狗、时钟、CAN UDS 最小恢复、RAM Flash Driver 及严格地址白名单。旧 APP 工程必须迁移启动头、重链并消除旧激活路径。
-5. 板上验证空片首装、两次交换、两个银行的 PBL 字节一致性、保护负例、每个掉电点和三核试运行；同时满足 T00 外部 QSPI 双银行安全基线。
+1. 物理银行：HSE 中可用作 A/B 银行来源的属性尚未在目标板上验证（`PBL_HSE_BANK_FROM_FW_PARTITION_VERIFIED`）。
+2. 启动记录：layout 中 D-Flash 事务单元偏移仍为 null（Q07）。
+3. 包认证：描述符格式加 HSE SMR 验证（Q07）。
+4. CAN：FLEXCANA 时钟树（FXOSC + MC_CGM）未配置（`PBL_CAN_CLOCK_VERIFIED`），恢复模式下暂不收发，只喂狗。
+5. C40：域 ID 与扇区锁映射（`PBL_C40_DOMAIN_ID`）。
 
 ## 构建与验证
 
 在本目录执行：
 
     powershell -ExecutionPolicy Bypass -File tools/build.ps1
-    powershell -ExecutionPolicy Bypass -File tools/run_host_tests.ps1
+    python tools/run_host_tests.py
 
-构建产生 build/pbl.elf、build/pbl.hex、build/pbl.bin 和 build/pbl.map。`pbl.bin` 可用于离线格式检查，**不是可烧写版本**。工程目前使用独立 ARM GCC/CMake 构建；S32DS/RTD 板级集成待器件资料与板卡配置确定后完成。
+S32K338 板级构建请另建构建目录，加上 `-DPBL_BOARD=s32k338`（RTD 不在默认路径时再加 `-DPBL_RTD_HEADER_DIR=<RTD header>`）。主机测试包含状态机、向量门、UDS/ISO-TP/白名单，以及 18 个变异测试，每个变异都必须被测试捕获。
 
-设计依据见 [PBL 独立工程方案](../HCM_VRK_3H/docs/无感刷写Boot_PBL独立工程方案_20261017.md)。工厂首装候选与只读盘点见 [Factory_AllInOne](../HCM_VRK_3H_Factory_AllInOne/README.md)。
+设计依据见 [PBL 独立工程方案](../HCM_VRK_3H/docs/无感刷写Boot_PBL独立工程方案_20261017.md)与主工程 `docs/M0_第三阶段报告_Q08-Q10_20261017.md`。工厂首装候选与只读盘点见 [Factory_AllInOne](../HCM_VRK_3H_Factory_AllInOne/README.md)。
