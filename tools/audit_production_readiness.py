@@ -112,11 +112,11 @@ def audit(app: Path) -> dict:
                        "s32k338 production guard absent",
                        "Implement safety I/O, HSE mapping/authentication, persistent record, jump/reset and CAN recovery in the PBL project."))
 
-    short_vectors = not (".rept 233" in pbl_start and ".section .isr_vector" in pbl_start and
-                         "SIZEOF(.isr_vector) == 249 * 4" in pbl_ld)
+    short_vectors = not (".rept 242" in pbl_start and ".section .isr_vector" in pbl_start and
+                         "SIZEOF(.isr_vector) == 258 * 4" in pbl_ld)
     checks.append(item("PBL board startup and IRQ vectors", not short_vectors,
-                       "PBL startup lacks the full 249 entry (16+233) vector table" if short_vectors else
-                       "Full 249 entry (16+233) vector table, size asserted by the PBL linker",
+                       "PBL startup lacks the full 258 entry (16+242) vector table" if short_vectors else
+                       "Full 258 entry (16+242) vector table, size asserted by the PBL linker",
                        "Integrate validated S32K338 startup, RAM ECC/MPU/VTOR initialization and every enabled CAN/timer IRQ vector."))
 
     layout_gate = app / "tools" / "check_fota_layout.py"

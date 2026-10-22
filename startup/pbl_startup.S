@@ -20,14 +20,23 @@
 .word 0xFFFFFFFF            /* 0x1C CM7_2 start address (unused) */
 .word 0xFFFFFFFF            /* 0x20 reserved */
 .word 0x00000000            /* 0x24 lifecycle configuration pointer (LC_CONFIG_ADDR 0) */
-.rept 54
-.word 0xFFFFFFFF            /* 0x28..0xFC reserved / CM7_3 unused */
+.word 0xFFFFFFFF            /* 0x28 reserved */
+#if defined(PBL_HSE_INSTALL_SOURCE)
+.word PBL_HSE_INSTALL_SOURCE /* 0x2C factory candidate only, own build identity */
+#else
+.word 0xFFFFFFFF            /* 0x2C runtime: no HSE installation source */
+#endif
+.rept 52
+.word 0xFFFFFFFF            /* 0x30..0xFC reserved / CM7_3 unused */
 .endr
 
-/* Full Cortex-M7 vector table: 16 system entries + 233 peripheral entries
- * (IRQn 0..232) = NUMBER_OF_INT_VECTORS 249 (RTD S32K358_COMMON.h). Every entry is valid, so a
- * stray exception or interrupt lands in Default_Handler, never in erased
- * flash. */
+/* Full Cortex-M7 vector table: 16 system entries + 242 peripheral entries
+ * (IRQn 0..241) = 258 words, the same length the C0 image links
+ * (Vector_Table.s 0x408 bytes), so an interrupt that C0 enables can never
+ * run past the end of the PBL table. NUMBER_OF_INT_VECTORS (249) in the RTD
+ * S32K358_COMMON.h used for S32K338 is smaller; the image is the authority.
+ * Every entry is valid, so a stray exception or interrupt lands in
+ * Default_Handler, never in erased flash. */
 .section .isr_vector, "a", %progbits
 .global __pbl_vectors
 __pbl_vectors:
@@ -47,7 +56,7 @@ __pbl_vectors:
 .word 0
 .word Default_Handler + 1   /* PendSV */
 .word Default_Handler + 1   /* SysTick */
-.rept 233
+.rept 242
 .word Default_Handler + 1
 .endr
 __pbl_vectors_end:

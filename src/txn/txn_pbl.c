@@ -103,18 +103,37 @@ TxnPblOutcome txn_pbl_run(const TxnRecordV1 *cur, uint8_t physical_bank,
         return TXN_PBL_JUMP_TARGET;
 
     case TXN_ST_ROLLBACK_REQUESTED:
-        if (on_confirmed) {
-            if (!ports->auth(ports->ctx, cur->confirmed_digest)) {
+    {
+        int activity = cur->result == TXN_RES_ACTIVITY_ROLLBACK;
+        uint8_t destination = activity ? cur->target_bank : cur->confirmed_bank;
+        const uint8_t *digest = activity ? cur->target_digest : cur->confirmed_digest;
+        /* An FF02 intent can precede its final CAN ACK. A source-side reboot
+         * must not bypass C0's response association by activating in PBL.
+         * Keep the intent for a fresh explicit request. Failed-trial rollback
+         * remains autonomous below. */
+        if(activity&&on_confirmed) {
+            return ports->auth(ports->ctx,cur->confirmed_digest)?
+                   TXN_PBL_JUMP_CONFIRMED:TXN_PBL_RECOVERY;
+        }
+        if (B == destination) {
+            if (!ports->auth(ports->ctx, digest)) {
                 return TXN_PBL_RECOVERY;
             }
             n = base_next(cur);
             n.state = TXN_ST_CONFIRMED;
             n.attempts = 0u;
             n.flags = 0u;
-            n.target_bank = cur->confirmed_bank;
-            n.target_package_id = cur->confirmed_package_id;
-            n.target_security_version = cur->confirmed_security_version;
-            memcpy(n.target_digest, cur->confirmed_digest, TXN_DIGEST_LEN);
+            if (activity) {
+                n.result = TXN_RES_ACTIVITY_ROLLBACK;
+                n.confirmed_bank = cur->target_bank;
+                n.confirmed_package_id = cur->target_package_id;
+                n.confirmed_security_version = cur->target_security_version;
+                memcpy(n.confirmed_digest, cur->target_digest, TXN_DIGEST_LEN);
+            }
+            n.target_bank = n.confirmed_bank;
+            n.target_package_id = n.confirmed_package_id;
+            n.target_security_version = n.confirmed_security_version;
+            memcpy(n.target_digest, n.confirmed_digest, TXN_DIGEST_LEN);
             if (!do_commit(cur, &n, B, ports)) { return TXN_PBL_RECOVERY; }
             return TXN_PBL_JUMP_CONFIRMED;
         }
@@ -124,10 +143,12 @@ TxnPblOutcome txn_pbl_run(const TxnRecordV1 *cur, uint8_t physical_bank,
         }
         n = base_next(cur);
         n.state = TXN_ST_ROLLBACK_REQUESTED;
+        if (activity) { n.result = TXN_RES_ACTIVITY_ROLLBACK; }
         n.flags = (uint8_t)((cur->flags & 0xF0u) |
                             (((cur->flags & 0x0Fu) + 1u) & 0x0Fu));
         if (!do_commit(cur, &n, B, ports)) { return TXN_PBL_RECOVERY; }
         return TXN_PBL_ACTIVATE_RESET;
+    }
 
     case TXN_ST_RECOVERY:
     default:

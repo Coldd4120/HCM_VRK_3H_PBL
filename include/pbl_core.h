@@ -13,12 +13,13 @@
  * layout.json boot_policy.max_trial_attempts (candidate value, to confirm). */
 #define PBL_MAX_TRIAL_BOOTS (PBL_LAYOUT_TRIAL_MAX_ATTEMPTS)
 
-/* C0 vector table: NUMBER_OF_INT_VECTORS (249, RTD S32K358_COMMON.h, used
- * for S32K338) is the whole table - 16 Cortex-M7 system entries + 233
- * peripheral entries (IRQn 0..232, last GMAC_SIUC_IRQn). The real C0 image
- * (Vector_Table.s, 0x408 bytes) has its Reset_Handler at +0x420, so the gate
- * must not assume 16 + 249 words (+0x424) or it refuses every C0 image. */
-#define PBL_C0_VECTOR_WORDS (249u)
+/* C0 vector table: 16 Cortex-M7 system entries + 242 peripheral entries
+ * (Vector_Table.s: 258 words = 0x408 bytes; Reset_Handler follows at +0x420).
+ * NUMBER_OF_INT_VECTORS in the RTD S32K358_COMMON.h used for S32K338 is 249,
+ * which is smaller than the table the C0 image actually links, so the gate
+ * must use the real image length: with 249 the window check would accept a
+ * reset handler at +0x3E4..+0x407, i.e. inside the real vector table. */
+#define PBL_C0_VECTOR_WORDS (258u)
 #define PBL_C0_VECTOR_BYTES (PBL_C0_VECTOR_WORDS * 4u)
 
 #if (PBL_C0_VECTOR_BYTES > PBL_LAYOUT_C0_VECTOR_ALIGN)

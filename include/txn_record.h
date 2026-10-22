@@ -52,6 +52,11 @@ extern "C" {
 #define TXN_RES_RECORD_CORRUPT 8u
 #define TXN_RES_CANCELLED      9u
 #define TXN_RES_HSE_ERROR      10u
+/* C0-authorized activity rollback after local confirmation (W13).
+ * In ROLLBACK_REQUESTED this is a durable direction marker: target_* is the
+ * retained baseline. PBL retries MUST preserve it until finalization. The
+ * wire layout is unchanged; both C0 and PBL must implement this contract. */
+#define TXN_RES_ACTIVITY_ROLLBACK 11u
 
 typedef struct {
     uint32_t magic;

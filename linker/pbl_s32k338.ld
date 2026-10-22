@@ -52,7 +52,7 @@ SECTIONS
 }
 ASSERT(SIZEOF(.boot_header) <= PBL_LAYOUT_VECTOR_OFFSET, "PBL IVT overlaps vector")
 ASSERT(ADDR(.isr_vector) == __pbl_vector_start, "PBL vector not at layout vector_offset")
-ASSERT(SIZEOF(.isr_vector) == 249 * 4, "PBL vector table must be complete (16 + 233 = NUMBER_OF_INT_VECTORS)")
+ASSERT(SIZEOF(.isr_vector) == 258 * 4, "PBL vector table must be complete (16 + 242 = C0 image length)")
 ASSERT((__pbl_vector_start % 0x800) == 0, "PBL VTOR alignment: keep the layout vector_align 0x800")
 ASSERT(LOADADDR(.data) + SIZEOF(.data) <= ORIGIN(PBL_FLASH) + LENGTH(PBL_FLASH),
        "PBL exceeds its layout region")

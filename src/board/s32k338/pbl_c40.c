@@ -30,7 +30,8 @@ static RAMFUNC bool c40_start(uint32_t address)
     (void)address;
     return false;
 #else
-    if ((IP_FLASH->MCR & (FLASH_MCR_ERS_MASK | FLASH_MCR_PGM_MASK)) != 0u ||
+    if ((IP_FLASH->MCR & (FLASH_MCR_EHV_MASK | FLASH_MCR_ERS_MASK | FLASH_MCR_PGM_MASK)) != 0u ||
+        (IP_FLASH->MCRS & FLASH_MCRS_DONE_MASK) == 0u ||
         (IP_FLASH->UT0 & FLASH_UT0_UTE_MASK) != 0u) {
         return false;
     }
@@ -53,6 +54,9 @@ static RAMFUNC bool c40_run(uint32_t mode_mask)
             break;
         }
     }
+    /* A bounded boot wait cannot retire an HV command. Preserve EHV/mode on
+     * unknown completion; c40_start then rejects further jobs until reset. */
+    if (!done) { return false; }
     status = IP_FLASH->MCRS & (FLASH_MCRS_PEG_MASK | FLASH_MCRS_PEP_MASK | FLASH_MCRS_PES_MASK);
     IP_FLASH->MCR &= ~FLASH_MCR_EHV_MASK;
     IP_FLASH->MCR &= ~mode_mask;

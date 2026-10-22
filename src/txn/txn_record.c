@@ -148,6 +148,22 @@ static int digests_equal(const uint8_t *a, const uint8_t *b)
     return (memcmp(a, b, TXN_DIGEST_LEN) == 0) ? 1 : 0;
 }
 
+static int same_confirmed(const TxnRecordV1 *a, const TxnRecordV1 *b)
+{
+    return a->confirmed_bank == b->confirmed_bank &&
+           a->confirmed_package_id == b->confirmed_package_id &&
+           a->confirmed_security_version == b->confirmed_security_version &&
+           digests_equal(a->confirmed_digest, b->confirmed_digest);
+}
+
+static int same_target(const TxnRecordV1 *a, const TxnRecordV1 *b)
+{
+    return a->target_bank == b->target_bank &&
+           a->target_package_id == b->target_package_id &&
+           a->target_security_version == b->target_security_version &&
+           digests_equal(a->target_digest, b->target_digest);
+}
+
 TxnStatus txn_check_invariants(const TxnRecordV1 *rec)
 {
     switch (rec->state) {
@@ -259,6 +275,29 @@ int txn_transition_allowed(const TxnRecordV1 *cur, const TxnRecordV1 *next,
             }
             return 1;
         }
+        /* CONFIRMED -> ROLLBACK_REQUESTED (W13): the tester asked FF02 after a
+         * local confirmation. The retained baseline becomes the rollback target;
+         * the confirmed identity must stay untouched. The physical switch still
+         * needs the approved activation sequence (D02/W19), which is why this
+         * only records the intent. */
+        if ((ns == TXN_ST_ROLLBACK_REQUESTED) && (writer == TXN_WR_C0)) {
+            if (physical_bank != cur->confirmed_bank) {
+                return 0;
+            }
+            if (next->result != TXN_RES_ACTIVITY_ROLLBACK) {
+                return 0;
+            }
+            if ((next->confirmed_bank != cur->confirmed_bank) ||
+                (next->confirmed_package_id != cur->confirmed_package_id) ||
+                (next->confirmed_security_version != cur->confirmed_security_version) ||
+                (!digests_equal(next->confirmed_digest, cur->confirmed_digest))) {
+                return 0;
+            }
+            if (!bank_is_other(next->target_bank, cur->target_bank)) {
+                return 0;
+            }
+            return 1;
+        }
         return 0;
 
     case TXN_ST_PREPARED:
@@ -357,6 +396,33 @@ int txn_transition_allowed(const TxnRecordV1 *cur, const TxnRecordV1 *next,
         return 0;
 
     case TXN_ST_ROLLBACK_REQUESTED:
+        /* FF02 keeps the running package confirmed until the physical switch.
+         * Its destination is target_*, unlike a failed trial's confirmed_*.
+         * Keep result=ACTIVITY_ROLLBACK on every retry: it is durable direction,
+         * not just a diagnostic that base_next() may clear. */
+        if (cur->result == TXN_RES_ACTIVITY_ROLLBACK) {
+            if (writer != TXN_WR_PBL ||
+                next->result != TXN_RES_ACTIVITY_ROLLBACK ||
+                next->txn_generation != cur->txn_generation ||
+                next->max_attempts != cur->max_attempts) { return 0; }
+            if (ns == TXN_ST_CONFIRMED) {
+                return physical_bank == cur->target_bank && next->flags == 0u &&
+                       next->attempts == 0u && same_target(cur, next) &&
+                       next->confirmed_bank == cur->target_bank &&
+                       next->confirmed_package_id == cur->target_package_id &&
+                       next->confirmed_security_version == cur->target_security_version &&
+                       digests_equal(next->confirmed_digest, cur->target_digest);
+            }
+            if (ns == TXN_ST_ROLLBACK_REQUESTED) {
+                return physical_bank == cur->confirmed_bank &&
+                       same_confirmed(cur, next) && same_target(cur, next) &&
+                       next->attempts == cur->attempts &&
+                       (next->flags & 0xF0u) == (cur->flags & 0xF0u) &&
+                       (next->flags & 0x0Fu) == (cur->flags & 0x0Fu) + 1u &&
+                       (next->flags & 0x0Fu) <= 2u;
+            }
+            return 0;
+        }
         if (writer == TXN_WR_PBL) {
             if (ns == TXN_ST_CONFIRMED) {
                 /* confirmed side, old package. */

@@ -77,20 +77,18 @@
 #define PBL_HSE_SRV_ID_GET_ATTR           0x00A50002u
 #define PBL_HSE_SRV_ID_ACTIVATE_PASSIVE   0x00000051u
 #define PBL_HSE_FW_VERSION_ATTR_ID        1u
-#define PBL_HSE_FW_PARTITION_ATTR_ID      102u
-#define PBL_HSE_FW_PARTITION_PRIMARY      1u
-#define PBL_HSE_FW_PARTITION_BACKUP       2u
 #define PBL_HSE_SRV_RSP_OK                0x55A5AA33u
 #define PBL_HSE_STATUS_INIT_OK            (1u << 8)    /* in FSR[31:16] */
 /* Bounded poll count for HSE/C40/FlexCAN handshakes (no timer in the PBL);
  * the SWT bounds the wall time. TODO(timing): replace by an STM time base. */
 #define PBL_POLL_LIMIT                    2000000u
 
-/* TODO(M09/NXP): HSE 2.55 has no documented attribute for the physical
- * (A/B) block. HSE_FW_PARTITION_ATTR_ID is a *candidate* source only; the
- * mapping is unverified and therefore disabled. Without it physical_bank()
- * fails and the PBL stays in recovery (fail closed). */
-/* #define PBL_HSE_BANK_FROM_FW_PARTITION_VERIFIED */
+/* TODO(M09/NXP): bind a qualified APP physical BootMap source.
+ * HSE_H/M FW_PARTITION is NOT an S32K338 HSE_B APP-bank attribute. */
+/* #define PBL_FULL_AB_MODE_VERIFIED 1 */
+#if defined(PBL_HSE_BANK_FROM_FW_PARTITION_VERIFIED)
+#error "FW_PARTITION cannot identify the S32K338 APP bank"
+#endif
 
 /* TODO(M10/C40): Mem_43_INFLS domain ID for CM7_0 (MCR.PEID check of
  * C40_Ip_MainInterfaceWriteJobAddress) and the sector lock map are not

@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
 project(HCM_VRK_3H_PBL C ASM)
 option(PBL_PRODUCTION "Require a bound production board port" OFF)
+option(PBL_FACTORY_INSTALL "Offline factory IVT variant (not hardware qualified)" OFF)
+set(PBL_HSE_INSTALL_SOURCE "" CACHE STRING "Explicit candidate HSE source address")
+if(PBL_FACTORY_INSTALL)
+  if(PBL_PRODUCTION OR PBL_BENCH_BRINGUP OR NOT PBL_HSE_INSTALL_SOURCE MATCHES "^0x[0-9A-Fa-f]+$")
+    message(FATAL_ERROR "Factory candidate needs explicit hex source; incompatible with production/bench")
+  endif()
+endif()
 set(PBL_BOARD "unbound" CACHE STRING "Board binding: unbound (fail-closed) or s32k338")
 set_property(CACHE PBL_BOARD PROPERTY STRINGS unbound s32k338)
 # LH-R1-002/003: opt-in TxnRecordV1 boot path. OFF keeps the release image
@@ -33,6 +40,7 @@ elseif(PBL_BOARD STREQUAL "s32k338")
     message(FATAL_ERROR "PBL_BOARD=s32k338 needs PBL_RTD_HEADER_DIR with the RTD S32K358 headers")
   endif()
   list(APPEND PBL_SOURCES
+    ../HCM_VRK_3H/common/boot/hal/vrk_s32k338_bank.c
     src/hal/vrk_hse_channel.c
     src/board/s32k338/pbl_board_s32k338.c
     src/board/s32k338/pbl_hw_s32k338.c
@@ -49,8 +57,12 @@ if(PBL_TXN_BACKEND)
 endif()
 
 add_executable(pbl.elf ${PBL_SOURCES})
+if(PBL_FACTORY_INSTALL)
+  target_compile_definitions(pbl.elf PRIVATE PBL_HSE_INSTALL_SOURCE=${PBL_HSE_INSTALL_SOURCE})
+endif()
 target_include_directories(pbl.elf PRIVATE include)
 if(PBL_BOARD STREQUAL "s32k338")
+  target_include_directories(pbl.elf PRIVATE ../HCM_VRK_3H/common/boot/hal)
   target_include_directories(pbl.elf PRIVATE src/board/s32k338)
   target_include_directories(pbl.elf SYSTEM PRIVATE "${PBL_RTD_HEADER_DIR}")
 endif()

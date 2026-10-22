@@ -35,13 +35,14 @@ static void mk(TxnRecordV1*r,uint8_t st,uint8_t wr,uint32_t seq,uint8_t cb,uint8
 /* ---- mock board port ---- */
 #define VEC  PBL_LAYOUT_C0_BASE            /* 0x442000, aligned to vector_align */
 static uint32_t g_bank; static int g_verify_ok;
+static uint32_t g_verified_package;
 static int g_jumped, g_activated, g_reset, g_recovery; static uint32_t g_jump_vec;
 static uint8_t g_allow[8]; static int g_allow_n;
 static void allow_clr(void){g_allow_n=0;} static void allow(uint8_t a){g_allow[g_allow_n++]=a;}
 static int board_auth(void*ctx,const uint8_t d[TXN_DIGEST_LEN]){(void)ctx;int i;for(i=0;i<g_allow_n;i++)if(d[0]==g_allow[i])return 1;return 0;}
 static bool m_bank(void*c,uint32_t*b){(void)c;*b=g_bank;return true;}
-static bool m_verify(void*c,uint32_t pkg,uint32_t*v){(void)c;(void)pkg;*v=VEC;return g_verify_ok?true:false;}
-static bool m_read_u32(void*c,uint32_t a,uint32_t*v){(void)c; if(a==VEC)*v=0x20008000u; else if(a==VEC+4u)*v=(VEC+0x400u)|1u; else *v=0u; return true;}
+static bool m_verify(void*c,uint32_t pkg,uint32_t*v){(void)c;g_verified_package=pkg;*v=VEC;return g_verify_ok?true:false;}
+static bool m_read_u32(void*c,uint32_t a,uint32_t*v){(void)c; if(a==VEC)*v=0x20008000u; else if(a==VEC+4u)*v=(VEC+0x420u)|1u; else *v=0u; return true;}
 static void m_jump(void*c,uint32_t v){(void)c;g_jumped=1;g_jump_vec=v;}
 static bool m_activate(void*c){(void)c;g_activated=1;return true;}
 static void m_reset(void*c){(void)c;g_reset=1;}
@@ -120,6 +121,30 @@ int main(void){
       CHECK(g_recovery&&!g_jumped&&!g_activated&&!g_reset,"no boot/activate on wrong layout");
       TxnLocation after; txn_store_load(&m,&after);
       CHECK(before.record.sequence==after.record.sequence,"no journal write on wrong layout"); }
+
+    /* FF02 after confirmation: run the real PBL glue, not just txn_pbl_run.
+     * Arrival must verify/jump using the restored package id, not the stale
+     * pre-finalization confirmed package in the original loaded record. */
+    for (uint8_t source=0; source<2u; source++) {
+      Sim s; sim_init(&s); TxnMedia m=MK(&s); g_m=&m;
+      TxnRecordV1 r; mk(&r,TXN_ST_ROLLBACK_REQUESTED,TXN_WR_C0,0,
+                       source,(uint8_t)(source^1u),B,A,0,3);
+      r.result=TXN_RES_ACTIVITY_ROLLBACK;
+      r.confirmed_package_id=22; r.target_package_id=11;
+      r.confirmed_security_version=6; r.target_security_version=5;
+      CHECK(txn_store_append(&m,&r)==TXN_APPEND_OK,"seed FF02 intent");
+      PblPort p=PORT(); reset_obs(); g_bank=source; allow_clr(); allow(A);
+      allow(B);
+      CHECK(pbl_run_txn(&p,&m,board_auth)==PBL_RESULT_JUMP,"FF02 source waits for explicit ACK-authorized activation");
+      CHECK(!g_activated&&!g_reset&&g_jumped&&g_verified_package==22,"source retains current package identity");
+      reset_obs(); g_bank=source^1u; g_verified_package=0;
+      CHECK(pbl_run_txn(&p,&m,board_auth)==PBL_RESULT_JUMP,"FF02 arrival boots baseline");
+      CHECK(g_verified_package==11&&g_jumped&&!g_activated,"verify restored package identity");
+      TxnLocation loc;
+      CHECK(txn_store_load(&m,&loc)==TXN_LOAD_OK &&
+            loc.record.confirmed_bank==g_bank&&loc.record.confirmed_package_id==11,
+            "FF02 baseline persisted before handoff");
+    }
 
     if(failures){ printf("PBL TXN BACKEND TESTS: %d FAIL\n",failures); return 1; }
     puts("PBL TXN BACKEND TESTS: ALL PASS"); return 0;

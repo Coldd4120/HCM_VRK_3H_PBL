@@ -55,10 +55,38 @@ static bool gpio_output_low(uint32_t index)
 
 /* Same order and checks as Vrk_BootForceHssOff (vrk_boot_clock.c): drive the
  * output latches low first, then enable the buffers, then verify. */
+
+/* PRTN1 COFB1 REQ42 gates SIUL2 (vrk_boot_clock.c VRK_BOOT_SIUL2_MASK, and
+ * C0's Vrk_BootSnapshotValid() checks the same bit after reset). The PBL
+ * touches SIUL2 before any MCAL driver exists, so it must not rely on the
+ * post-reset default: request the gate the same way the C0 startup does for
+ * MSCM (CLKEN, PUPD, key, inverted key, wait). */
+static bool siul2_clock_gate(void)
+{
+    uint32_t n;
+    if ((IP_MC_ME->PRTN1_COFB1_STAT & MC_ME_PRTN1_COFB1_STAT_BLOCK42_MASK) != 0u) {
+        return true;
+    }
+    IP_MC_ME->PRTN1_COFB1_CLKEN |= MC_ME_PRTN1_COFB1_CLKEN_REQ42_MASK;
+    IP_MC_ME->PRTN1_PUPD |= MC_ME_PRTN1_PUPD_PCUD_MASK;
+    IP_MC_ME->CTL_KEY = MC_ME_CTL_KEY_KEY(0x5AF0u);
+    IP_MC_ME->CTL_KEY = MC_ME_CTL_KEY_KEY(0xA50Fu);
+    for (n = 0u; n < PBL_POLL_LIMIT; ++n) {
+        if ((IP_MC_ME->PRTN1_PUPD & MC_ME_PRTN1_PUPD_PCUD_MASK) == 0u &&
+            (IP_MC_ME->PRTN1_COFB1_STAT & MC_ME_PRTN1_COFB1_STAT_BLOCK42_MASK) != 0u) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool pbl_hw_safe_outputs(void)
 {
     static const uint8_t bpin[3] = {0u, 4u, 11u};
     uint32_t i;
+    if (!siul2_clock_gate()) {
+        return false;
+    }
     IP_SIUL2->PGPDO1 &= (uint16_t)~rev16(PBL_HSS_PTA_H_PINS);
     IP_SIUL2->PGPDO2 &= (uint16_t)~rev16(PBL_HSS_PTB_L_PINS);
     mscr_output(PBL_MSCR_PTA_H_BASE + 13u, 0u);

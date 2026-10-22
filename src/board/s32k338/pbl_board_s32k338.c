@@ -15,6 +15,7 @@
 #include "pbl_board_cfg.h"
 #include "pbl_hw.h"
 #include "gen/pbl_layout.h"
+#include "vrk_s32k338_bank.h"
 
 #include <stddef.h>
 
@@ -57,14 +58,10 @@ static bool board_physical_bank(void *ctx, uint32_t *bank)
     if (bank == NULL) { return false; }
     *bank = 0u;
     return true;
-#elif defined(PBL_HSE_BANK_FROM_FW_PARTITION_VERIFIED)
-    uint8_t partition = 0u;
-    if (!pbl_hw_hse_get_attr(PBL_HSE_FW_PARTITION_ATTR_ID, &partition, 1u)) {
-        return false;
-    }
-    if (partition == PBL_HSE_FW_PARTITION_PRIMARY) { *bank = 0u; return true; }
-    if (partition == PBL_HSE_FW_PARTITION_BACKUP)  { *bank = 1u; return true; }
-    return false;
+#elif defined(PBL_FULL_AB_MODE_VERIFIED) && (PBL_FULL_AB_MODE_VERIFIED == 1)
+    uint8_t observed;
+    if(bank==NULL || !Vrk_S32k338Bank_Decode(Vrk_S32k338Bank_ReadStatus(),1,&observed))return false;
+    *bank=observed;return true;
 #else
     (void)bank;
     return false;
@@ -238,8 +235,8 @@ void pbl_board_init(void)
  * error and pbl_run_txn ends in recovery (never starts C0). The production
  * audit still blocks via the PBL_PRODUCTION #error above.
  *
- * Bank identification: board_physical_bank() (above) already reads the A/B
- * block from HSE, gated by PBL_HSE_BANK_FROM_FW_PARTITION_VERIFIED (M09).
+ * Bank identification: board_physical_bank() uses the shared DCM decoder when
+ * full-AB mode is qualified. HSE_H/M FW_PARTITION is not an APP bank source.
  *
  * Download path: the UDS programming sequence (0x34/0x36/0x37) writes through
  * pbl_flash_policy (erase/program whitelist) + pbl_c40; it stays disabled in

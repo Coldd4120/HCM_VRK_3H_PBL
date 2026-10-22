@@ -158,7 +158,7 @@ static int vector_gate(void)
     /* Regression: the real C0 build (Vector_Table.s ends at +0x408) has
      * Reset_Handler at +0x420 and must be accepted. */
     f.entry = (C0_BASE + 0x420u) | 1u;              CHECK(pbl_c0_vector_ok(&p, C0_BASE));
-    CHECK(PBL_C0_VECTOR_BYTES == 249u * 4u);
+    CHECK(PBL_C0_VECTOR_BYTES == 258u * 4u);
     f.entry = C0_END | 1u;                          CHECK(!pbl_c0_vector_ok(&p, C0_BASE));
     f.entry = PBL_LAYOUT_C1_BASE | 1u;              CHECK(!pbl_c0_vector_ok(&p, C0_BASE));
     f.entry = PBL_LAYOUT_PBL_VECTOR | 1u;           CHECK(!pbl_c0_vector_ok(&p, C0_BASE));

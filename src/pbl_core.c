@@ -280,7 +280,12 @@ PblResult pbl_run_txn(const PblPort *p, const TxnMedia *media,
     outcome = txn_pbl_run(&loc.record, (uint8_t)bank, &tp);
     switch (outcome) {
     case TXN_PBL_JUMP_CONFIRMED:
-        pkg = loc.record.confirmed_package_id;
+        /* txn_pbl_run may have finalized an FF02 baseline in target_*. The
+         * pre-transition loaded confirmed_* still names the package we left. */
+        pkg = (loc.record.state == TXN_ST_ROLLBACK_REQUESTED &&
+               loc.record.result == TXN_RES_ACTIVITY_ROLLBACK &&
+               bank == loc.record.target_bank) ?
+              loc.record.target_package_id : loc.record.confirmed_package_id;
         break;
     case TXN_PBL_JUMP_TARGET:
         pkg = loc.record.target_package_id;
