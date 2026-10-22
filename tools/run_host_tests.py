@@ -21,6 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ZIG_DEFAULT = Path(r"E:\work\VRK\01_FIRMWARE\HCM_VRK_3H_OUT\TOOLS\srs_test_deps\ziglang\zig.exe")
+MAIN_HAL = Path(os.environ.get("VRK_MAIN_ROOT", ROOT.parent / "HCM_VRK_3H")) / "common/boot/hal"
 CFLAGS = ["-std=c11", "-Wall", "-Wextra", "-Werror", "-pedantic", "-O2"]
 
 SUITES = {
@@ -41,6 +42,11 @@ SUITES = {
     "txn_backend": (["src/pbl_core.c", "src/txn/txn_record.c", "src/txn/txn_store.c",
                      "src/txn/txn_pbl.c"], "tests/test_pbl_txn_backend.c",
                     ["-DPBL_TXN_BACKEND"]),
+    # S1 bench DCM bank (PBL_BENCH_DCM_BANK): include/pbl_bench_bank.h over the
+    # shared MAIN DCMSTAT decoder, driving the production pbl_run().
+    "bench_bank": (["src/pbl_core.c", str(MAIN_HAL / "vrk_s32k338_bank.c")],
+                   "tests/test_pbl_bench_bank.c",
+                   ["-DVRK_S32K338_BANK_HOST_TEST", "-I", str(MAIN_HAL)]),
 }
 
 # (suite, file, old, new): each must make the suite fail.
@@ -106,6 +112,12 @@ MUTANTS = {
     "txn_pbl trial-limit guard removed": (
         "txn_pbl", "src/txn/txn_pbl.c",
         "if ((cur->attempts >= cur->max_attempts) ||", "if ((0) ||"),
+    "bench DCM bank falls back to bank 0": (
+        "bench_bank", "include/pbl_bench_bank.h",
+        "Vrk_S32k338Bank_Decode(dcmstat, 1, &observed) != 1) {\n        return false;",
+        "Vrk_S32k338Bank_Decode(dcmstat, 1, &observed) != 1) {\n        *bank = 0u;\n        return true;"),
+    "bench record keeps confirmed_bank 0": (
+        "bench_bank", "include/pbl_bench_bank.h", "r.confirmed_bank = bank;", "r.confirmed_bank = 0u;"),
     "pbl_run_txn skips the vector gate": (
         "txn_backend", "src/pbl_core.c",
         "    if (!trusted_vector(p, pkg, &vector)) {\n        return recover(p);\n    }\n",

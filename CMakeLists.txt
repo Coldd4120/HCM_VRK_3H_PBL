@@ -15,6 +15,11 @@ set_property(CACHE PBL_BOARD PROPERTY STRINGS unbound s32k338)
 option(PBL_TXN_BACKEND "Use the TxnRecordV1 boot-decision path (LH-R1-002/003)" OFF)
 # Bench bring-up: direct primary-C0 boot, no HSE/journal. NOT for production.
 option(PBL_BENCH_BRINGUP "Bench bring-up: direct primary-C0 boot, no HSE/journal (NOT for production)" OFF)
+# S1 bench: boot bank from DCMSTAT instead of fixed bank 0 (bench only, OFF by default).
+option(PBL_BENCH_DCM_BANK "Bench: boot bank from DCMSTAT, decode failure -> recovery (needs PBL_BENCH_BRINGUP)" OFF)
+if(PBL_BENCH_DCM_BANK AND (NOT PBL_BENCH_BRINGUP OR PBL_PRODUCTION OR NOT PBL_BOARD STREQUAL "s32k338"))
+  message(FATAL_ERROR "PBL_BENCH_DCM_BANK needs PBL_BENCH_BRINGUP on PBL_BOARD=s32k338 and never PBL_PRODUCTION")
+endif()
 # NXP RTD device headers (S32K358_*.h, used for S32K338). Referenced in place,
 # never copied into this repository (NXP proprietary).
 set(PBL_RTD_HEADER_DIR
@@ -74,6 +79,9 @@ if(PBL_TXN_BACKEND)
 endif()
 if(PBL_BENCH_BRINGUP)
   target_compile_definitions(pbl.elf PRIVATE PBL_BENCH_BRINGUP=1)
+endif()
+if(PBL_BENCH_DCM_BANK)
+  target_compile_definitions(pbl.elf PRIVATE PBL_BENCH_DCM_BANK=1)
 endif()
 target_compile_features(pbl.elf PRIVATE c_std_11)
 target_compile_options(pbl.elf PRIVATE

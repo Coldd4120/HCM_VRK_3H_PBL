@@ -32,12 +32,22 @@
  * the structural C0 vector gate (pbl_c0_vector_ok) still runs before the jump.
  * OFF by default so the release image stays byte-identical; mutually exclusive
  * with PBL_PRODUCTION; traceable via the PBL_VERSION 'B' marker. */
+#if defined(PBL_BENCH_DCM_BANK) && !defined(PBL_BENCH_BRINGUP)
+#error "PBL_BENCH_DCM_BANK is a bench-only switch and requires PBL_BENCH_BRINGUP"
+#endif
 #ifdef PBL_BENCH_BRINGUP
 #ifdef PBL_PRODUCTION
 #error "PBL_BENCH_BRINGUP must never be combined with PBL_PRODUCTION"
 #endif
 #pragma message("PBL_BENCH_BRINGUP active: direct unverified C0 boot, bench bring-up only, NOT for production")
+#if defined(PBL_BENCH_DCM_BANK)
+/* S1: bench PBL reports the DCMSTAT-observed A/B half (pbl_bench_bank.h). */
+#include "pbl_bench_bank.h"
+#pragma message("PBL_BENCH_DCM_BANK active: bench boot bank from DCMSTAT, decode failure -> recovery")
+#define PBL_VERSION 0x0003B001u   /* bench bring-up + DCM bank, 0xMMmmpppp ('B' marker, variant 1) */
+#else
 #define PBL_VERSION 0x0003B000u   /* bench bring-up, 0xMMmmpppp ('B' marker) */
+#endif
 #else
 #define PBL_VERSION 0x00030000u   /* stage 3 port, 0xMMmmpppp */
 #endif
@@ -49,6 +59,12 @@ enum {
 };
 
 static uint8_t recovery_reason = PBL_REASON_BOOT_FAILED;
+#if defined(PBL_BENCH_DCM_BANK)
+/* Half observed by board_physical_bank(); pbl_run() asks for it before it
+ * reads the record, so the synthesized record always follows the observation. */
+static uint32_t bench_bank = 0u;
+static bool bench_bank_valid = false;
+#endif
 
 static bool board_physical_bank(void *ctx, uint32_t *bank)
 {
@@ -56,7 +72,13 @@ static bool board_physical_bank(void *ctx, uint32_t *bank)
 #if defined(PBL_BENCH_BRINGUP)
     /* Bench: no HSE bank source; bring-up always runs the primary half. */
     if (bank == NULL) { return false; }
+#if defined(PBL_BENCH_DCM_BANK)
+    bench_bank_valid = pbl_bench_dcm_bank(Vrk_S32k338Bank_ReadStatus(), &bench_bank);
+    if (!bench_bank_valid) { return false; }
+    *bank = bench_bank;
+#else
     *bank = 0u;
+#endif
     return true;
 #elif defined(PBL_FULL_AB_MODE_VERIFIED) && (PBL_FULL_AB_MODE_VERIFIED == 1)
     uint8_t observed;
@@ -76,6 +98,10 @@ static bool board_read_record(void *ctx, uint32_t copy, PblRecord *record)
      * takes the normal CONFIRMED -> boot() path (vector gate still runs). No
      * D-Flash journal is read or written. */
     if (record == NULL || copy != 0u) { return false; }
+#if defined(PBL_BENCH_DCM_BANK)
+    if (!bench_bank_valid) { return false; }
+    return pbl_bench_confirmed_record(bench_bank, record);
+#else
     {
         PblRecord r = {0};
         r.magic = PBL_RECORD_MAGIC;
@@ -91,6 +117,7 @@ static bool board_read_record(void *ctx, uint32_t copy, PblRecord *record)
         *record = r;
     }
     return true;
+#endif
 #else
     (void)copy; (void)record;
     return false;   /* TODO(Q07): D-Flash txn units (layout dflash.txn_units) */

@@ -11,6 +11,8 @@ param(
     [ValidateSet('unbound', 's32k338')][string]$Board = 'unbound',
     [string]$BuildDir,
     [switch]$Bench,
+    # S1 bench: PBL_BENCH_DCM_BANK (boot bank from DCMSTAT); requires -Bench.
+    [switch]$BenchDcmBank,
     [switch]$TxnBackend,
     [switch]$FactoryInstall,
     [string]$HseInstallSource
@@ -21,6 +23,7 @@ if ($FactoryInstall -and ($Bench -or $HseInstallSource -notmatch '^0x[0-9A-Fa-f]
     throw 'Factory candidate needs -HseInstallSource hex address and cannot use -Bench'
 }
 if (-not $FactoryInstall -and $HseInstallSource) { throw 'HSE source requires explicit -FactoryInstall' }
+if ($BenchDcmBank -and -not $Bench) { throw 'PBL_BENCH_DCM_BANK is bench-only: use it with -Bench' }
 if ($Bench -and ($Board -ne 's32k338')) {
     throw 'PBL_BENCH_BRINGUP needs -Board s32k338; the unbound port never jumps to C0'
 }
@@ -35,6 +38,7 @@ $layoutSha = $Matches[1]
 if (-not $BuildDir) {
     $suffix = ''
     if ($Bench) { $suffix += '_bench' }
+    if ($BenchDcmBank) { $suffix += '_dcm' }
     if ($TxnBackend) { $suffix += '_txn' }
     if ($FactoryInstall) { $suffix += '_factory_install' }
     if ($approved) {
@@ -57,6 +61,7 @@ if (-not (Test-Path -LiteralPath $ninjaPath -PathType Leaf)) {
 }
 $benchFlag = if ($Bench) { 'ON' } else { 'OFF' }
 $txnFlag = if ($TxnBackend) { 'ON' } else { 'OFF' }
+$dcmFlag = if ($BenchDcmBank) { 'ON' } else { 'OFF' }
 $factoryFlag = if ($FactoryInstall) { 'ON' } else { 'OFF' }
 $toolchain = Join-Path $projectRoot 'cmake\arm-gcc.cmake'
 $buildDir = if ([IO.Path]::IsPathRooted($BuildDir)) { $BuildDir } else { Join-Path $projectRoot $BuildDir }
@@ -66,6 +71,7 @@ $configureArgs = @(
     "-DPBL_BOARD=$Board",
     "-DPBL_BENCH_BRINGUP=$benchFlag",
     "-DPBL_TXN_BACKEND=$txnFlag",
+    "-DPBL_BENCH_DCM_BANK=$dcmFlag",
     "-DPBL_FACTORY_INSTALL=$factoryFlag",
     "-DPBL_HSE_INSTALL_SOURCE=$HseInstallSource"
 )
@@ -87,6 +93,7 @@ $config = [ordered]@{
     board          = $Board
     bench_bringup  = [bool]$Bench
     txn_backend    = [bool]$TxnBackend
+    bench_dcm_bank = [bool]$BenchDcmBank
     production     = $false
     factory_install = [bool]$FactoryInstall
     hse_install_source = $HseInstallSource
