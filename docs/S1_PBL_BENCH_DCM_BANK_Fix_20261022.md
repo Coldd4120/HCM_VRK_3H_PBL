@@ -12,7 +12,7 @@
 - 构建与追溯：
   - `tools/build.ps1 -Bench -BenchDcmBank`，输出目录后缀 `_dcm`。
   - `build_config.json` 新增 `bench_dcm_bank` 字段。
-  - `PBL_VERSION` 改为 `0x0003B001`（DID FD02 可读）。
+  - `PBL_VERSION` 改为 `0x0003B001`（PBL DID FD02；只在 PBL 恢复态的 UDS 服务里可读，正常跳 C0 后 APP 侧没有 DID 能看到它）。
 - 新增 `include/pbl_bench_bank.h`（纯函数）：
   - `pbl_bench_dcm_bank`：调用 MAIN 共用的 `Vrk_S32k338Bank_Decode(dcm, 1, …)`，要求 DONE、OTA_SCAN_OK、OTA_ACTIVE 三位同时置位，bit17 即 bank。解码失败返回 false，不会回落到 0。
   - `pbl_bench_confirmed_record`：合成的 CONFIRMED 记录中，`confirmed_bank` 和 `target_bank` 都取实测 bank。
@@ -37,7 +37,7 @@
 - 与 OFF 版相比，符号层面只多了这些：`Vrk_S32k338Bank_ReadStatus`（只读 `0x402AC000`）、`Vrk_S32k338Bank_Decode`，以及 `bench_bank`@`0x2042000C` 和 `bench_bank_valid`@`0x20420008`（PBL SRAM）。
 
 ## 上板判据（S1）
-1. 在 A 侧冷上电：三核 `ready_mask=7`，心跳持续增长，DID FD02 读到 `0x0003B001`。
+1. 在 A 侧冷上电：三核 `ready_mask=7`，心跳持续增长。用 J-Link 读 PBL ELF 中的 `bench_bank`@`0x2042000C` 为 0，`bench_bank_valid`@`0x20420008` 为 1（这块 SRAM 被 C0 复用前可读；被复用后以 DCMSTAT 为准）。
 2. 用现有探针换到 B（会写 HSE 持久状态，需单独审批），然后冷上电：
    - DCMSTAT 为 `0x00030FF1`；
    - PBL 按 bank 1 启动，三核健康；
